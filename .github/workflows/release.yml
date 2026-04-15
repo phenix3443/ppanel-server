@@ -144,16 +144,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           TAG: ${{ github.ref_name }}
           SERVER_REPO: ${{ github.repository }}
+          TARGET_OWNER: ${{ github.repository_owner }}
         run: |
+          PPANEL_REPO="${TARGET_OWNER}/ppanel"
+
           if [ -z "${GH_TOKEN}" ]; then
-            echo "GH_TOKEN secret is required to dispatch phenix3443/ppanel" >&2
+            echo "GH_TOKEN secret is required to dispatch ${PPANEL_REPO}" >&2
             exit 1
           fi
 
           curl -sSfL -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${GH_TOKEN}" \
-            https://api.github.com/repos/phenix3443/ppanel/dispatches \
+            "https://api.github.com/repos/${PPANEL_REPO}/dispatches" \
             -d @- <<EOF
           {
             "event_type": "trigger-build",
