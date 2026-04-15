@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/perfect-panel/server/internal/model/auth"
 	"github.com/perfect-panel/server/internal/report"
 	"github.com/perfect-panel/server/internal/svc"
 	"github.com/perfect-panel/server/internal/types"
@@ -71,12 +72,14 @@ func (l *GetGlobalConfigLogic) GetGlobalConfig() (resp *types.GetGlobalConfigRes
 	}
 
 	for _, method := range authMethods {
-		if *method.Enabled {
-			methods = append(methods, method.Method)
-			if method.Method == "device" {
-				_ = json.Unmarshal([]byte(method.Config), &resp.Auth.Device)
-				resp.Auth.Device.Enable = true
-			}
+		if !isPublicAuthMethodAvailable(method) {
+			continue
+		}
+
+		methods = append(methods, method.Method)
+		if method.Method == "device" {
+			_ = json.Unmarshal([]byte(method.Config), &resp.Auth.Device)
+			resp.Auth.Device.Enable = true
 		}
 	}
 	resp.OAuthMethods = methods
@@ -89,4 +92,31 @@ func (l *GetGlobalConfigLogic) GetGlobalConfig() (resp *types.GetGlobalConfigRes
 	// web ads config
 	resp.WebAd = webAds.Value == "true"
 	return
+}
+
+func isPublicAuthMethodAvailable(method *auth.Auth) bool {
+	if method == nil || method.Enabled == nil || !*method.Enabled {
+		return false
+	}
+
+	switch method.Method {
+	case "email", "mobile", "device":
+		return true
+	case "google":
+		var cfg auth.GoogleAuthConfig
+		return cfg.Unmarshal(method.Config) == nil && cfg.ClientId != "" && cfg.ClientSecret != ""
+	case "apple":
+		var cfg auth.AppleAuthConfig
+		return cfg.Unmarshal(method.Config) == nil &&
+			cfg.TeamID != "" &&
+			cfg.KeyID != "" &&
+			cfg.ClientId != "" &&
+			cfg.ClientSecret != "" &&
+			cfg.RedirectURL != ""
+	case "telegram":
+		var cfg auth.TelegramAuthConfig
+		return cfg.Unmarshal(method.Config) == nil && cfg.BotToken != ""
+	default:
+		return false
+	}
 }
