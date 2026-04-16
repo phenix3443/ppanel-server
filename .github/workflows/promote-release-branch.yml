@@ -86,14 +86,12 @@ jobs:
 
           body="${PR_BODY}"
           if [ -z "${body}" ]; then
-            body=$(cat <<EOF
-## Summary
-
-- promote \`${HEAD_BRANCH}\` into \`${BASE_BRANCH}\`
-- auto-merge this PR after all required checks pass
-- trigger automatic release tag creation after the merge lands on \`${BASE_BRANCH}\`
-EOF
-)
+            body="$(printf '%s\n' \
+              '## Summary' \
+              '' \
+              "- promote \`${HEAD_BRANCH}\` into \`${BASE_BRANCH}\`" \
+              '- auto-merge this PR after all required checks pass' \
+              "- trigger automatic release tag creation after the merge lands on \`${BASE_BRANCH}\`")"
           fi
 
           pr_url="$(gh pr create \
