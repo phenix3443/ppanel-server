@@ -27,9 +27,10 @@ To ensure the quality of the codebase and maintainability of the project, please
 - **Correct Branch**:
     - Develop new features based on `feature/*` branches.
     - Fix bugs based on `fix/*` branches.
-    - Ensure the target branch of the PR aligns with the project's branching strategy.
+    - Start `feature/*` and `fix/*` from `dev`.
+    - Merge daily development back into `dev` first, then promote `dev` to `master` via PR.
 
-- **Sync with Base Branch**: Before submitting the PR, ensure your branch is up-to-date with the target branch (e.g., `main` or `develop`).
+- **Sync with Base Branch**: Before submitting the PR, ensure your branch is up-to-date with the target branch (usually `dev`; only release promotions target `master`).
 
 ## 4. Review Process
 

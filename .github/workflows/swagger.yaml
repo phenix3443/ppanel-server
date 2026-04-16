@@ -5,7 +5,7 @@ on:
   #   types: [published]
   push:
     branches:
-      - develop
+      - dev
 
 jobs:
   build:
@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
 
       - name: Install goctl
         run: |
@@ -47,7 +47,7 @@ jobs:
           test -f ./swagger/admin.json
 
       - name: Checkout target repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: perfect-panel/ppanel-docs
           token: ${{ secrets.GH_TOKEN }}
@@ -78,4 +78,3 @@ jobs:
           echo "No changes detected."
           exit 0
           fi
-

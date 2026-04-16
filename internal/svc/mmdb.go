@@ -18,17 +18,11 @@ type IPLocation struct {
 }
 
 func NewIPLocation(path string) (*IPLocation, error) {
-
-	// 检查文件是否存在
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		logger.Infof("[GeoIP] Database not found, downloading from %s", GeoIPDBURL)
-		// 文件不存在，下载数据库
-		err := DownloadGeoIPDatabase(GeoIPDBURL, path)
-		if err != nil {
-			logger.Errorf("[GeoIP] Failed to download database: %v", err.Error())
-			return nil, err
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, os.ErrNotExist
 		}
-		logger.Infof("[GeoIP] Database downloaded successfully")
+		return nil, err
 	}
 
 	db, err := geoip2.Open(path)

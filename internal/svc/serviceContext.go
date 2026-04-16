@@ -22,6 +22,7 @@ import (
 	"github.com/perfect-panel/server/internal/model/traffic"
 	"github.com/perfect-panel/server/internal/model/user"
 	"github.com/perfect-panel/server/pkg/limit"
+	"github.com/perfect-panel/server/pkg/logger"
 	"github.com/perfect-panel/server/pkg/nodeMultiplier"
 	"github.com/perfect-panel/server/pkg/orm"
 
@@ -77,7 +78,8 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	// IP location initialize
 	geoIP, err := NewIPLocation("./cache/GeoLite2-City.mmdb")
 	if err != nil {
-		panic(err.Error())
+		logger.Errorf("[GeoIP] Failed to initialize database, continuing without GeoIP support: %v", err.Error())
+		geoIP = nil
 	}
 
 	rds := redis.NewClient(&redis.Options{

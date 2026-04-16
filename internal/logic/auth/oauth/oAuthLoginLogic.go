@@ -46,7 +46,8 @@ func (l *OAuthLoginLogic) OAuthLogin(req *types.OAthLoginRequest) (resp *types.O
 		uri, err = l.github()
 	case "facebook":
 		uri, err = l.facebook()
-
+	default:
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "oauth login method not supported: %v", req.Method)
 	}
 	if err != nil {
 		l.Errorw("OAuthLogin ", logger.Field("error", err.Error()))
@@ -62,11 +63,17 @@ func (l *OAuthLoginLogic) google(req *types.OAthLoginRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if authMethod.Enabled == nil || !*authMethod.Enabled {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "google oauth is disabled")
+	}
 	var cfg auth.GoogleAuthConfig
 	err = json.Unmarshal([]byte(authMethod.Config), &cfg)
 	if err != nil {
 		l.Errorw("error unmarshal google config: %v", logger.Field("config", authMethod.Config), logger.Field("error", err.Error()))
 		return "", err
+	}
+	if cfg.ClientId == "" || cfg.ClientSecret == "" {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "google oauth config is incomplete")
 	}
 	client := google.New(&google.Config{
 		ClientID:     cfg.ClientId,
@@ -92,11 +99,17 @@ func (l *OAuthLoginLogic) apple(req *types.OAthLoginRequest) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if authMethod.Enabled == nil || !*authMethod.Enabled {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "apple oauth is disabled")
+	}
 	var cfg auth.AppleAuthConfig
 	err = json.Unmarshal([]byte(authMethod.Config), &cfg)
 	if err != nil {
 		l.Errorw("error unmarshal apple config: %v", logger.Field("config", authMethod.Config), logger.Field("error", err.Error()))
 		return "", err
+	}
+	if cfg.TeamID == "" || cfg.KeyID == "" || cfg.ClientId == "" || cfg.ClientSecret == "" || cfg.RedirectURL == "" {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "apple oauth config is incomplete")
 	}
 	uri := "https://appleid.apple.com/auth/authorize?client_id=%s&redirect_uri=%s&response_type=code&state=%s&scope=name email&response_mode=form_post"
 	// generate the state code
@@ -116,16 +129,22 @@ func (l *OAuthLoginLogic) telegram(req *types.OAthLoginRequest) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	if authMethod.Enabled == nil || !*authMethod.Enabled {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "telegram oauth is disabled")
+	}
 	var cfg auth.TelegramAuthConfig
 	err = json.Unmarshal([]byte(authMethod.Config), &cfg)
 	if err != nil {
 		l.Errorw("error unmarshal apple config: %v", logger.Field("config", authMethod.Config), logger.Field("error", err.Error()))
 		return "", err
 	}
+	if cfg.BotToken == "" {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "telegram oauth config is incomplete")
+	}
 	// generate the state code
 	code := random.KeyNew(8, 1)
 	// save the state code
-	err = l.svcCtx.Redis.Set(l.ctx, fmt.Sprintf("apple:%s", code), req.Redirect, 5*60*time.Second).Err()
+	err = l.svcCtx.Redis.Set(l.ctx, fmt.Sprintf("telegram:%s", code), req.Redirect, 5*60*time.Second).Err()
 	if err != nil {
 		l.Errorw("error save state code to redis", logger.Field("code", code), logger.Field("error", err.Error()))
 		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "error save state code to redis")
