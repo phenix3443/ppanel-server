@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -77,7 +77,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -113,7 +113,7 @@ jobs:
 
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v5
       - name: Extract version from git tag
         id: version
         run: echo "VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')" >> $GITHUB_ENV
@@ -121,7 +121,7 @@ jobs:
       - name: Set BUILD_TIME env
         run: echo BUILD_TIME=$(date --iso-8601=seconds) >> ${GITHUB_ENV}
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: wangyoucao577/go-release-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
