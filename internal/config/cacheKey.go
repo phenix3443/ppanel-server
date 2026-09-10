@@ -30,6 +30,9 @@ const InviteConfigKey = "system:invite_config"
 // TelegramConfigKey Telegram Config Key
 const TelegramConfigKey = "system:telegram_config"
 
+// AdminTelegramChatIdsKey cached admin Telegram chat ID list (not system config)
+const AdminTelegramChatIdsKey = "system:telegram_admin_chat_ids"
+
 // TosConfigKey Tos配置
 const TosConfigKey = "system:tos_config"
 
@@ -38,6 +41,17 @@ const VerifyCodeConfigKey = "system:verify_code_config"
 
 // SessionIdKey cache session key
 const SessionIdKey = "auth:session_id"
+
+// TelegramBindKey prefixes the single-use Telegram account-binding tokens
+// handed to the bot's deep link. It is deliberately separate from
+// SessionIdKey: a binding capability must not double as a session
+// credential, and it is consumed on first use.
+const TelegramBindKey = "auth:telegram_bind"
+
+// TelegramCallbackKey prefixes the redeemed Telegram login/bind callbacks.
+// The widget result is a bearer credential that travels in a URL fragment,
+// so it may only be exchanged once.
+const TelegramCallbackKey = "auth:telegram_callback"
 
 // GlobalConfigKey Global Config Key
 const GlobalConfigKey = "system:global_config"
@@ -59,3 +73,9 @@ const SendIntervalKeyPrefix = "send:interval:"
 
 // SendCountLimitKeyPrefix Send Count Limit Key Prefix eg. send:limit:register:email:xxx@ppanel.dev
 const SendCountLimitKeyPrefix = "send:limit:"
+
+// RegisterIPLimitKeyPrefix limits new accounts created by the same client IP.
+const RegisterIPLimitKeyPrefix = "register:limit:ip:"
+
+// VerifyCodeAttemptKeyPrefix limits guesses against a verification code.
+const VerifyCodeAttemptKeyPrefix = "auth:verify:attempt:"

@@ -2,14 +2,51 @@ package logger
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 func ReadLastNLines(path string, n int) ([]string, error) {
+	return readLastNLinesFromFile(filepath.Join(path, accessFilename), n)
+}
+
+// ReadLastNLogLines returns recent entries from every active file sink. A
+// missing level file is normal (for example, a service may have no severe
+// events yet); an error is returned only when no current log file is readable.
+func ReadLastNLogLines(path string, n int) ([]string, error) {
+	if n <= 0 {
+		return []string{}, nil
+	}
+	filenames := []string{accessFilename, errorFilename, severeFilename, slowFilename, statFilename}
+	lines := make([]string, 0, n*len(filenames))
+	var readErrs []error
+	readable := false
+	for _, filename := range filenames {
+		fileLines, err := readLastNLinesFromFile(filepath.Join(path, filename), n)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				readErrs = append(readErrs, fmt.Errorf("%s: %w", filename, err))
+			}
+			continue
+		}
+		readable = true
+		lines = append(lines, fileLines...)
+	}
+	if !readable {
+		if len(readErrs) > 0 {
+			return nil, errors.Join(readErrs...)
+		}
+		return nil, os.ErrNotExist
+	}
+	return lines, nil
+}
+
+func readLastNLinesFromFile(filename string, n int) ([]string, error) {
 	// Open the file
-	file, err := os.Open(fmt.Sprintf("%s/%s", path, accessFilename))
+	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}

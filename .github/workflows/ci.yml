@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    # Pushes to dev are covered by nightly.yml, which gates publishing on the
+    # same checks; running them here too would double every dev push.
+    branches: [master, main]
+  pull_request:
+    branches: [master, main, dev]
+
+jobs:
+  check:
+    name: Build, vet and test
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: ppanel
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pmysql"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-start-period 10s
+          --health-retries 10
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_DATABASE: ppanel
+          MARIADB_ROOT_PASSWORD: mariadb
+          MARIADB_ROOT_HOST: "%"
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-start-period 10s
+          --health-retries 10
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ppanel
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ppanel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with MySQL 8 and PostgreSQL
+        env:
+          PPANEL_TEST_MYSQL_DSN: "root:mysql@tcp(127.0.0.1:3306)/ppanel?charset=utf8mb4&parseTime=true&loc=UTC&interpolateParams=true"
+          PPANEL_TEST_POSTGRES_DSN: postgres://postgres:postgres@127.0.0.1:5432/ppanel?sslmode=disable
+        run: go test ./...
+
+      - name: Test MariaDB 11.8 compatibility
+        env:
+          PPANEL_TEST_MYSQL_DSN: "root:mariadb@tcp(127.0.0.1:3307)/ppanel?charset=utf8mb4&parseTime=true&loc=UTC&interpolateParams=true"
+        run: go test -count=1 ./pkg/orm ./internal/app/migration/schema
+
+      # master is the LTS line and main takes the features, so the two can each
+      # gain migrations. This keeps their numbering compatible; see the script for
+      # what an incompatible pair does to an upgrading database.
+      - name: Check migration lines
+        run: |
+          git fetch --quiet origin master
+          ./script/check-migration-lines.sh

@@ -3,6 +3,7 @@ package logger
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -12,8 +13,6 @@ import (
 	"sync/atomic"
 
 	fatihcolor "github.com/fatih/color"
-	"github.com/perfect-panel/server/pkg/color"
-	"github.com/perfect-panel/server/pkg/errorx"
 )
 
 type (
@@ -100,11 +99,11 @@ func (c comboWriter) Alert(v any) {
 }
 
 func (c comboWriter) Close() error {
-	var be errorx.BatchError
+	var errs []error
 	for _, w := range c.writers {
-		be.Add(w.Close())
+		errs = append(errs, w.Close())
 	}
-	return be.Err()
+	return errors.Join(errs...)
 }
 
 func (c comboWriter) Debug(v any, fields ...LogField) {
@@ -361,16 +360,19 @@ func marshalJson(t interface{}) ([]byte, error) {
 }
 
 func output(writer io.Writer, level string, val any, fields ...LogField) {
-	// only truncate string content, don't know how to truncate the values of other types.
-	if v, ok := val.(string); ok {
-		maxLen := atomic.LoadUint32(&maxContentLength)
-		if maxLen > 0 && len(v) > int(maxLen) {
-			val = v[:maxLen]
-			fields = append(fields, truncatedField)
-		}
+	val = redactValue(val)
+	fields = redactFields(combineGlobalFields(fields))
+	maxLen := atomic.LoadUint32(&maxContentLength)
+	var truncated bool
+	val, truncated = limitValue(val, maxLen, 0)
+	for i := range fields {
+		var cut bool
+		fields[i].Value, cut = limitValue(fields[i].Value, maxLen, 0)
+		truncated = truncated || cut
 	}
-
-	fields = combineGlobalFields(fields)
+	if truncated {
+		fields = append(fields, truncatedField)
+	}
 	// +3 for timestamp, level and content
 	entry := make(logEntry, len(fields)+3)
 	for _, field := range fields {
@@ -390,29 +392,27 @@ func output(writer io.Writer, level string, val any, fields ...LogField) {
 }
 
 func wrapLevelWithColor(level string) string {
-	var colour color.Color
+	var colour fatihcolor.Attribute
 	switch level {
 	case levelAlert:
-		colour = color.FgRed
+		colour = fatihcolor.FgRed
 	case levelError:
-		colour = color.FgRed
+		colour = fatihcolor.FgRed
 	case levelFatal:
-		colour = color.FgRed
+		colour = fatihcolor.FgRed
 	case levelInfo:
-		colour = color.FgBlue
+		colour = fatihcolor.FgBlue
 	case levelSlow:
-		colour = color.FgYellow
+		colour = fatihcolor.FgYellow
 	case levelDebug:
-		colour = color.FgYellow
+		colour = fatihcolor.FgYellow
 	case levelStat:
-		colour = color.FgGreen
-	}
-
-	if colour == color.NoColor {
+		colour = fatihcolor.FgGreen
+	default:
 		return level
 	}
 
-	return color.WithColorPadding(level, colour)
+	return fatihcolor.New(colour, fatihcolor.Bold).Sprint(" " + level + " ")
 }
 
 func writeJson(writer io.Writer, info any) {

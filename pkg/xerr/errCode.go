@@ -2,6 +2,24 @@ package xerr
 
 /** (The first 3 digits represent the business, and the last three digits represent the specific function) **/
 
+// Domain bands for NEW error codes (ADR-001: modules evolve toward separate
+// services, so codes must not collide across independently-released
+// domains). Every code introduced from 2026-07-25 on must be allocated
+// inside its owning module's band; the pre-existing codes below are frozen
+// where they are — clients switch on the numeric values, renumbering is a
+// breaking change. TestErrorCodeSegmentation enforces both rules.
+const (
+	BandShared       uint32 = 100000 // cross-cutting: transport, database, generic
+	BandIdentity     uint32 = 110000 // accounts, auth, devices, verification
+	BandBilling      uint32 = 120000 // orders, payments, coupons, wallet
+	BandSubscription uint32 = 130000 // plans, user subscriptions, quota
+	BandNetwork      uint32 = 140000 // servers, nodes, traffic
+	BandSupport      uint32 = 150000 // tickets, announcements, ads, documents
+	BandPlatform     uint32 = 160000 // system settings, tasks, logs
+	BandNotification uint32 = 170000 // telegram, broadcast channels
+	bandWidth        uint32 = 10000  // each band spans [Band, Band+bandWidth)
+)
+
 // General error code
 const (
 	SUCCESS uint32 = 200
@@ -59,6 +77,7 @@ const (
 	CouponNotApplicable     uint32 = 50003 // Coupon does not match the order or conditions
 	CouponInsufficientUsage uint32 = 50004 // Coupon has insufficient remaining uses
 	CouponExpired           uint32 = 50005 // Coupon is expired
+	CouponDisabled          uint32 = 50006 // Coupon is disabled
 )
 
 // Subscribe

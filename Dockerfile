@@ -1,10 +1,11 @@
 # Use a smaller base image for the build stage
-FROM golang:alpine AS builder
+FROM golang:1.27.1-alpine AS builder
 
 LABEL stage=gobuilder
 
 ARG TARGETARCH
-ARG VERSION
+ARG VERSION=unknown
+ARG CHANNEL=dev
 ENV CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH}
 
 # Combine apk commands into one to reduce layer size
@@ -21,7 +22,7 @@ COPY . .
 
 # Build the binary with version and build time
 RUN BUILD_TIME=$(date -u +"%Y-%m-%d %H:%M:%S") && \
-    go build -ldflags="-s -w -X 'github.com/perfect-panel/server/pkg/constant.Version=${VERSION}' -X 'github.com/perfect-panel/server/pkg/constant.BuildTime=${BUILD_TIME}'" -o /app/ppanel ppanel.go
+    go build -ldflags="-s -w -X 'github.com/perfect-panel/server/internal/app/buildinfo.Version=${VERSION}' -X 'github.com/perfect-panel/server/internal/app/buildinfo.BuildTime=${BUILD_TIME}' -X 'github.com/perfect-panel/server/internal/app/buildinfo.Channel=${CHANNEL}'" -o /app/ppanel main.go
 
 # Final minimal image
 FROM scratch

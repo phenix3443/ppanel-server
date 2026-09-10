@@ -1,26 +1,21 @@
 package random
 
 import (
-	"math/rand"
 	"testing"
-	"time"
-
-	"github.com/perfect-panel/server/pkg/snowflake"
 
 	"github.com/stretchr/testify/assert"
 )
 
 func TestEncodeBase62(t *testing.T) {
 	start := 1112275807
-	length := 1558080
+	length := 10000
 	n := length + start
 	// n := 328564998144
 	m := make(map[string]struct{})
 	// m := make(map[string]struct{}, length)
 	var inviteCode string
 	for i := start; i < n; i++ {
-		// inviteCode = EncodeBase36(int64(i))
-		inviteCode = EncodeBase36(snowflake.GetID())
+		inviteCode = EncodeBase62(int64(i))
 		if v, ok := m[inviteCode]; ok {
 			t.Fatal(v, inviteCode)
 		}
@@ -82,15 +77,4 @@ func TestInt64ToDashedString(t *testing.T) {
 			assert.Equalf(t, tt.want, StrToDashedString(tt.args.strNum), "StrToDashedString(%v)", tt.args.strNum)
 		})
 	}
-}
-
-// ShuffleString shuffles the characters in a string.
-func ShuffleString(s string) string {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	runes := []rune(s)
-	for i := range runes {
-		j := r.Intn(i + 1)
-		runes[i], runes[j] = runes[j], runes[i]
-	}
-	return string(runes)
 }

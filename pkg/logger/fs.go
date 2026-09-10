@@ -28,7 +28,7 @@ func (fs realFileSystem) Copy(writer io.Writer, reader io.Reader) (int64, error)
 }
 
 func (fs realFileSystem) Create(name string) (*os.File, error) {
-	return os.Create(name)
+	return os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, defaultFileMode)
 }
 
 func (fs realFileSystem) Open(name string) (*os.File, error) {

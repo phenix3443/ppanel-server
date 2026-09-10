@@ -1,0 +1,182 @@
+name: Nightly
+
+on:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ppanel-server
+
+jobs:
+  # Nothing is published unless these pass. ci.yml deliberately skips pushes to
+  # dev so the checks run once per push instead of twice.
+  verify:
+    name: Build, vet and test
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: ppanel
+          MYSQL_ROOT_PASSWORD: mysql
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pmysql"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-start-period 10s
+          --health-retries 10
+      mariadb:
+        image: mariadb:11.8
+        env:
+          MARIADB_DATABASE: ppanel
+          MARIADB_ROOT_PASSWORD: mariadb
+          MARIADB_ROOT_HOST: "%"
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-start-period 10s
+          --health-retries 10
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: ppanel
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ppanel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test with MySQL 8 and PostgreSQL
+        env:
+          PPANEL_TEST_MYSQL_DSN: "root:mysql@tcp(127.0.0.1:3306)/ppanel?charset=utf8mb4&parseTime=true&loc=UTC&interpolateParams=true"
+          PPANEL_TEST_POSTGRES_DSN: postgres://postgres:postgres@127.0.0.1:5432/ppanel?sslmode=disable
+        run: go test ./...
+
+      - name: Test MariaDB 11.8 compatibility
+        env:
+          PPANEL_TEST_MYSQL_DSN: "root:mariadb@tcp(127.0.0.1:3307)/ppanel?charset=utf8mb4&parseTime=true&loc=UTC&interpolateParams=true"
+        run: go test -count=1 ./pkg/orm ./internal/app/migration/schema
+
+  publish:
+    name: Publish nightly
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # main builds toward the next series, so it reports that series rather than a
+      # commit: operators reading the panel see "2.0(...) Nightly" and can tell a
+      # v2 preview from a bleeding-edge dev build without decoding a sha.
+      - name: Resolve build metadata
+        run: |
+          echo "BUILD_TIME=$(date --iso-8601=seconds)" >> $GITHUB_ENV
+          echo "SHORT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            echo "VERSION=2.0" >> $GITHUB_ENV
+            echo "IMAGE_CHANNEL=v2.0-nightly" >> $GITHUB_ENV
+          else
+            echo "VERSION=${GITHUB_SHA::8}" >> $GITHUB_ENV
+            echo "IMAGE_CHANNEL=nightly" >> $GITHUB_ENV
+          fi
+
+      # Only the dev line publishes a GitHub release, so only it needs binaries.
+      - name: Build binaries
+        if: github.ref_name == 'dev'
+        run: make linux-amd64 linux-arm64 VERSION=${{ env.VERSION }} CHANNEL=nightly
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # amd64 only: an arm64 leg would run under QEMU on every push.
+      - name: Build and push the nightly image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            CHANNEL=nightly
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_CHANNEL }}
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.IMAGE_CHANNEL }}-${{ env.SHORT_SHA }}
+
+      # Replacing the release keeps one rolling entry whose asset URLs never
+      # change, so releases/download/nightly/<name> always resolves to the newest
+      # build. The tag is nightly rather than v-prefixed so it cannot trigger the
+      # stable pipeline, which fires on 'v*'. The feature line publishes only
+      # images, so it deliberately has no release of its own -- and could not reuse
+      # a v2.0-prefixed tag here without firing that pipeline.
+      - name: Publish the rolling nightly release
+        if: github.ref_name == 'dev'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete nightly --yes --cleanup-tag || true
+          gh release create nightly \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Nightly ${{ env.VERSION }}" \
+            --notes "Untested-in-production build from \`dev\` at \`${{ env.VERSION }}\`, built ${{ env.BUILD_TIME }}.
+
+          Container image: \`ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:nightly-${{ env.VERSION }}\` (linux/amd64).
+
+          Nightly builds apply database migrations automatically at boot, and a migration published here may still be renumbered before it reaches a stable release. Downgrading is not supported once a migration has run: the only rollback is restoring a database backup. Do not point this at production data." \
+            bin/${{ env.IMAGE_NAME }}-linux-amd64 \
+            bin/${{ env.IMAGE_NAME }}-linux-arm64

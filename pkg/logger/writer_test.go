@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 
@@ -100,8 +102,13 @@ func TestConsoleWriter(t *testing.T) {
 
 func TestNewFileWriter(t *testing.T) {
 	t.Run("access", func(t *testing.T) {
+		logPath := filepath.Join(t.TempDir(), "log-path-is-file")
+		if err := os.WriteFile(logPath, []byte("not a directory"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+
 		_, err := newFileWriter(LogConf{
-			Path: "/not-exists",
+			Path: logPath,
 		})
 		assert.Error(t, err)
 	})
@@ -123,8 +130,12 @@ func TestNopWriter(t *testing.T) {
 }
 
 func TestWriteJson(t *testing.T) {
+	oldOutput := log.Writer()
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
+	t.Cleanup(func() {
+		log.SetOutput(oldOutput)
+	})
 	writeJson(nil, "foo")
 	assert.Contains(t, buf.String(), "foo")
 
@@ -147,8 +158,12 @@ func TestWriteJson(t *testing.T) {
 }
 
 func TestWritePlainAny(t *testing.T) {
+	oldOutput := log.Writer()
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
+	t.Cleanup(func() {
+		log.SetOutput(oldOutput)
+	})
 	writePlainAny(nil, levelInfo, "foo")
 	assert.Contains(t, buf.String(), "foo")
 

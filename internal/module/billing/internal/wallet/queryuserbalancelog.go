@@ -1,0 +1,78 @@
+package wallet
+
+import (
+	"context"
+
+	"github.com/perfect-panel/server/internal/infra/requestctx"
+	dto "github.com/perfect-panel/server/internal/module/billing/contract"
+	"github.com/perfect-panel/server/internal/module/identity/entity/user"
+	"github.com/perfect-panel/server/internal/module/platform/entity/log"
+	"github.com/perfect-panel/server/pkg/logger"
+	"github.com/perfect-panel/server/pkg/xerr"
+	"github.com/pkg/errors"
+)
+
+type QueryUserBalanceLogLogic struct {
+	logger.Logger
+	ctx  context.Context
+	deps Deps
+}
+
+// NewQueryUserBalanceLogLogic Query User Balance Log
+func newQueryUserBalanceLogLogic(ctx context.Context, deps Deps) *QueryUserBalanceLogLogic {
+	return &QueryUserBalanceLogLogic{
+		Logger: logger.WithContext(ctx),
+		ctx:    ctx,
+		deps:   deps,
+	}
+}
+
+func (l *QueryUserBalanceLogLogic) QueryUserBalanceLog() (resp *dto.QueryUserBalanceLogListResponse, err error) {
+	u, ok := l.ctx.Value(requestctx.CtxKeyUser).(*user.User)
+	if !ok {
+		logger.Error("current user is not found in context")
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.InvalidAccess), "Invalid Access")
+	}
+
+	data, total, err := l.deps.Logs.FilterSystemLog(l.ctx, &log.FilterParams{
+		Page:     1,
+		Size:     100,
+		Type:     log.TypeBalance.Uint8(),
+		ObjectID: u.Id,
+	})
+	if err != nil {
+		l.Errorw("[QueryUserBalanceLog] Query User Balance Log Error:", logger.Field("err", err.Error()))
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "Query User Balance Log Error")
+	}
+
+	list := make([]dto.BillingBalanceLogSnapshot, 0)
+	for _, datum := range data {
+		var content log.Balance
+		if err = content.Unmarshal([]byte(datum.Content)); err != nil {
+			l.Errorf("[QueryUserBalanceLog] unmarshal balance log content failed: %v", err.Error())
+			continue
+		}
+		list = append(list, dto.BillingBalanceLogSnapshot{
+			UserId:           datum.ObjectID,
+			Amount:           content.Amount,
+			Type:             content.Type,
+			OrderNo:          content.OrderNo,
+			Balance:          content.Balance,
+			Timestamp:        content.Timestamp,
+			ClientIP:         content.ClientIP,
+			UserAgent:        content.UserAgent,
+			ActorID:          content.ActorID,
+			IPCountryCode:    content.IPCountryCode,
+			IPCountry:        content.IPCountry,
+			IPRegion:         content.IPRegion,
+			IPCity:           content.IPCity,
+			IPASN:            content.IPASN,
+			IPASOrganization: content.IPASOrganization,
+		})
+	}
+
+	return &dto.QueryUserBalanceLogListResponse{
+		Total: total,
+		List:  list,
+	}, nil
+}

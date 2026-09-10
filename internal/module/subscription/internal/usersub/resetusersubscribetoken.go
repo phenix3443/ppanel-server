@@ -1,0 +1,58 @@
+package usersub
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/perfect-panel/server/internal/module/subscription/entity/usersub"
+
+	"uuid"
+
+	dto "github.com/perfect-panel/server/internal/module/subscription/contract"
+	"github.com/perfect-panel/server/pkg/logger"
+	"github.com/perfect-panel/server/pkg/timeutil"
+	"github.com/perfect-panel/server/pkg/xerr"
+	"github.com/pkg/errors"
+)
+
+type ResetUserSubscribeTokenLogic struct {
+	logger.Logger
+	ctx  context.Context
+	deps Deps
+}
+
+// NewResetUserSubscribeTokenLogic Reset user subscribe token
+func newResetUserSubscribeTokenLogic(ctx context.Context, deps Deps) *ResetUserSubscribeTokenLogic {
+	return &ResetUserSubscribeTokenLogic{
+		Logger: logger.WithContext(ctx),
+		ctx:    ctx,
+		deps:   deps,
+	}
+}
+
+func (l *ResetUserSubscribeTokenLogic) ResetUserSubscribeToken(req *dto.ResetUserSubscribeTokenRequest) error {
+	userSub, err := l.deps.UserSubs.FindOneSubscribe(l.ctx, req.UserSubscribeId)
+	if err != nil {
+		logger.Errorf("[ResetUserSubscribeToken] FindOneSubscribe error: %v", err.Error())
+		return errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "FindOneSubscribe error: %v", err.Error())
+	}
+	userSub.Token = usersub.TokenFromOrder(fmt.Sprintf("AdminUpdate:%d", timeutil.Now().UnixMilli()))
+	userSub.UUID = uuid.NewV4().String()
+
+	err = l.deps.UserSubs.UpdateSubscribe(l.ctx, userSub)
+	if err != nil {
+		logger.Errorf("[ResetUserSubscribeToken] UpdateSubscribe error: %v", err.Error())
+		return errors.Wrapf(xerr.NewErrCode(xerr.DatabaseUpdateError), "UpdateSubscribe error: %v", err.Error())
+	}
+	// Clear user subscribe cache
+	if err = l.deps.Cache.ClearSubscribeCache(l.ctx, userSub); err != nil {
+		l.Errorw("ClearSubscribeCache failed:", logger.Field("error", err.Error()), logger.Field("userSubscribeId", userSub.Id))
+		return errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "ClearSubscribeCache failed: %v", err.Error())
+	}
+	// Clear subscribe cache
+	if err = l.deps.Plans.ClearCache(l.ctx, userSub.SubscribeId); err != nil {
+		l.Errorw("failed to clear subscribe cache", logger.Field("error", err.Error()), logger.Field("subscribeId", userSub.SubscribeId))
+		return errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "failed to clear subscribe cache: %v", err.Error())
+	}
+	return nil
+}

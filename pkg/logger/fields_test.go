@@ -5,12 +5,41 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/perfect-panel/server/pkg/requestmeta"
 	"github.com/stretchr/testify/assert"
 )
+
+func TestContextWithRequestMetadataPreservesAuthorizedRiskFields(t *testing.T) {
+	var output bytes.Buffer
+	oldWriter := Reset()
+	SetWriter(NewWriter(&output))
+	t.Cleanup(func() {
+		Reset()
+		if oldWriter != nil {
+			SetWriter(oldWriter)
+		}
+	})
+
+	ctx := ContextWithRequestMetadata(context.Background(), requestmeta.Metadata{
+		ClientIP: "203.0.113.2", UserAgent: "RiskClient/2.0", ActorID: 8,
+		IPMetadata: requestmeta.IPMetadata{
+			IPCountryCode: "SG", IPCountry: "Singapore", IPRegion: "Central Singapore", IPCity: "Singapore",
+			IPASN: 64500, IPASOrganization: "Example Network",
+		},
+	})
+	WithContext(ctx).Info("request-scoped event")
+	got := output.String()
+	for _, expected := range []string{`"client_ip":"203.0.113.2"`, `"user_agent":"RiskClient/2.0"`, `"actor_id":8`, `"ip_country_code":"SG"`, `"ip_country":"Singapore"`, `"ip_region":"Central Singapore"`, `"ip_city":"Singapore"`, `"ip_asn":64500`, `"ip_as_organization":"Example Network"`} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("context log missing %s: %s", expected, got)
+		}
+	}
+}
 
 func TestAddGlobalFields(t *testing.T) {
 	var buf bytes.Buffer
