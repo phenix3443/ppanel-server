@@ -6,6 +6,7 @@ import (
 
 	"github.com/perfect-panel/server/internal/config"
 	"github.com/perfect-panel/server/internal/infra/mapping"
+	"github.com/perfect-panel/server/internal/module/identity/entity/auth"
 	dto "github.com/perfect-panel/server/internal/module/platform/contract"
 	"github.com/perfect-panel/server/pkg/logger"
 	"github.com/perfect-panel/server/pkg/xerr"
@@ -66,12 +67,14 @@ func (l *GetGlobalConfigLogic) GetGlobalConfig() (resp *dto.GetGlobalConfigRespo
 	}
 
 	for _, method := range authMethods {
-		if *method.Enabled {
-			methods = append(methods, method.Method)
-			if method.Method == "device" {
-				_ = json.Unmarshal([]byte(method.Config), &resp.Auth.Device)
-				resp.Auth.Device.Enable = true
-			}
+		if !isPublicAuthMethodAvailable(method) {
+			continue
+		}
+
+		methods = append(methods, method.Method)
+		if method.Method == "device" {
+			_ = json.Unmarshal([]byte(method.Config), &resp.Auth.Device)
+			resp.Auth.Device.Enable = true
 		}
 	}
 	resp.OAuthMethods = methods
@@ -84,4 +87,37 @@ func (l *GetGlobalConfigLogic) GetGlobalConfig() (resp *dto.GetGlobalConfigRespo
 	// web ads config
 	resp.WebAd = webAds.Value == "true"
 	return
+}
+
+// isPublicAuthMethodAvailable 决定一个登录方式该不该出现在公开的全局配置里。
+//
+// 【enabled 不等于可用】一个 enabled 但 client_id 为空的 Google 登录，
+// 只判 enabled 会把它宣告给前端，用户点下去才失败。这里把配置完整性
+// 一并作为对外可见的前提。
+func isPublicAuthMethodAvailable(method *auth.Auth) bool {
+	if method == nil || method.Enabled == nil || !*method.Enabled {
+		return false
+	}
+
+	switch method.Method {
+	case "email", "mobile", "device":
+		return true
+	case "google":
+		var cfg auth.GoogleAuthConfig
+		return json.Unmarshal([]byte(method.Config), &cfg) == nil &&
+			cfg.ClientId != "" && cfg.ClientSecret != ""
+	case "apple":
+		var cfg auth.AppleAuthConfig
+		return json.Unmarshal([]byte(method.Config), &cfg) == nil &&
+			cfg.TeamID != "" &&
+			cfg.KeyID != "" &&
+			cfg.ClientId != "" &&
+			cfg.ClientSecret != "" &&
+			cfg.RedirectURL != ""
+	case "telegram":
+		var cfg auth.TelegramAuthConfig
+		return json.Unmarshal([]byte(method.Config), &cfg) == nil && cfg.BotToken != ""
+	default:
+		return false
+	}
 }

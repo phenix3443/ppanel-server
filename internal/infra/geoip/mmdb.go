@@ -29,16 +29,13 @@ type IPLocation struct {
 
 func NewIPLocation(path string) (*IPLocation, error) {
 
-	// 检查文件是否存在
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		logger.Infof("[GeoIP] Database not found, downloading from %s", GeoIPDBURL)
-		// 文件不存在，下载数据库
-		err := DownloadGeoIPDatabase(GeoIPDBURL, path)
-		if err != nil {
-			logger.Errorf("[GeoIP] Failed to download database: %v", err.Error())
-			return nil, err
+	// 【不在启动路径上下载 GeoIP 库】启动时联网拉一个 60MB 的文件，
+	// 在离线或出网受限的环境里会把启动卡死到超时。缺库交给调用方降级处理。
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, os.ErrNotExist
 		}
-		logger.Infof("[GeoIP] Database downloaded successfully")
+		return nil, err
 	}
 
 	db, err := geoip2.Open(path)

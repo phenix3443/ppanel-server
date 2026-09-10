@@ -51,7 +51,10 @@ func (l *OAuthLoginLogic) OAuthLogin(req *dto.OAthLoginRequest) (resp *dto.OAuth
 		uri, err = l.github(req)
 	case "facebook":
 		uri, err = l.facebook(req)
-
+	default:
+		// 没有 default 时，未知 method 会静默返回空 uri 和 nil error，
+		// 前端拿到一个空跳转地址，看起来像后端没响应。
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "oauth login method not supported: %v", req.Method)
 	}
 	if err != nil {
 		l.Errorw("OAuthLogin ", logger.Field("error", err.Error()))
@@ -72,6 +75,9 @@ func (l *OAuthLoginLogic) google(req *dto.OAthLoginRequest) (string, error) {
 	if err != nil {
 		l.Errorw("error unmarshal google config", logger.Field("error", err.Error()))
 		return "", err
+	}
+	if cfg.ClientId == "" || cfg.ClientSecret == "" {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "google oauth config is incomplete")
 	}
 	client := google.New(&google.Config{
 		ClientID:     cfg.ClientId,
@@ -125,6 +131,9 @@ func (l *OAuthLoginLogic) apple(req *dto.OAthLoginRequest) (string, error) {
 		l.Errorw("error unmarshal apple config", logger.Field("error", err.Error()))
 		return "", err
 	}
+	if cfg.TeamID == "" || cfg.KeyID == "" || cfg.ClientId == "" || cfg.ClientSecret == "" || cfg.RedirectURL == "" {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "apple oauth config is incomplete")
+	}
 	// The stored redirect becomes a browser redirect in the Apple form-post
 	// callback, so pin it to the configured site host.
 	if err := oauthstate.ValidateRedirect(req.Redirect, l.deps.SiteHost); err != nil {
@@ -177,6 +186,9 @@ func (l *OAuthLoginLogic) telegram(req *dto.OAthLoginRequest) (string, error) {
 	if err != nil {
 		l.Errorw("error unmarshal telegram config", logger.Field("error", err.Error()))
 		return "", err
+	}
+	if cfg.BotToken == "" {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "telegram oauth config is incomplete")
 	}
 	// Telegram sends the signed widget result to this redirect, so pin it to
 	// the configured site host rather than relying only on the allowed-URL

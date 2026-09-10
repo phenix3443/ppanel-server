@@ -19,6 +19,7 @@ import (
 	"github.com/perfect-panel/server/internal/module/support"
 	"github.com/perfect-panel/server/internal/repository"
 	"github.com/perfect-panel/server/internal/transport/devicesocket"
+	"github.com/perfect-panel/server/pkg/logger"
 	"github.com/perfect-panel/server/pkg/orm"
 	"github.com/redis/go-redis/v9"
 )
@@ -61,7 +62,9 @@ func NewApplication(c config.Config) *Application {
 	// IP location initialize
 	geoIP, err := geoip.NewIPLocation("./cache/GeoLite2-City.mmdb")
 	if err != nil {
-		panic(err.Error())
+		// GeoIP 只影响 IP 归属地展示，不该拦住整个服务启动。
+		logger.Errorf("[GeoIP] Failed to initialize database, continuing without GeoIP support: %v", err.Error())
+		geoIP = nil
 	}
 
 	rds := redis.NewClient(&redis.Options{
