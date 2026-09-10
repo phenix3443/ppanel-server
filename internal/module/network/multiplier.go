@@ -1,0 +1,12 @@
+package network
+
+import "github.com/perfect-panel/server/internal/module/network/internal/multiplier"
+
+// MultiplierManager and MultiplierPeriod expose the network-owned runtime
+// configuration to application assembly without exporting its implementation.
+type MultiplierManager = multiplier.Manager
+type MultiplierPeriod = multiplier.TimePeriod
+
+func NewMultiplierManager(periods []MultiplierPeriod) *MultiplierManager {
+	return multiplier.NewManager(periods)
+}

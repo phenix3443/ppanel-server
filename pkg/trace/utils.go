@@ -5,7 +5,6 @@ import (
 	"net"
 	"strings"
 
-	ptrace "github.com/perfect-panel/server/internal/trace"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
@@ -15,12 +14,23 @@ import (
 
 const localhost = "127.0.0.1"
 
-var (
-	// SpanIDFromContext returns the span id from ctx.
-	SpanIDFromContext = ptrace.SpanIDFromContext
-	// TraceIDFromContext returns the trace id from ctx.
-	TraceIDFromContext = ptrace.TraceIDFromContext
-)
+// SpanIDFromContext returns the span id from ctx, or an empty string.
+func SpanIDFromContext(ctx context.Context) string {
+	span := trace.SpanContextFromContext(ctx)
+	if span.HasSpanID() {
+		return span.SpanID().String()
+	}
+	return ""
+}
+
+// TraceIDFromContext returns the trace id from ctx, or an empty string.
+func TraceIDFromContext(ctx context.Context) string {
+	span := trace.SpanContextFromContext(ctx)
+	if span.HasTraceID() {
+		return span.TraceID().String()
+	}
+	return ""
+}
 
 // ParseFullMethod returns the method name and attributes.
 func ParseFullMethod(fullMethod string) (string, []attribute.KeyValue) {

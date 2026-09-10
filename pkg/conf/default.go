@@ -56,6 +56,10 @@ func parseDefaultValue(kind reflect.Kind, defaultValue string) any {
 		var i uint32
 		_, _ = fmt.Sscanf(defaultValue, "%d", &i)
 		return i
+	case reflect.Float64:
+		var f float64
+		_, _ = fmt.Sscanf(defaultValue, "%f", &f)
+		return f
 	default:
 		fmt.Printf("类型 %v 没有处理, 值为: %v \n", kind, defaultValue)
 		panic("unhandled default case")

@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/perfect-panel/server/internal/trace"
-
-	"github.com/perfect-panel/server/pkg/timex"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 // WithCallerSkip returns a Logger with given caller skip.
@@ -31,7 +29,7 @@ func WithContext(ctx context.Context) Logger {
 // WithDuration returns a Logger with given duration.
 func WithDuration(d time.Duration) Logger {
 	return &richLogger{
-		fields: []LogField{Field(durationKey, timex.ReprOfDuration(d))},
+		fields: []LogField{Field(durationKey, reprLogDuration(d))},
 	}
 }
 
@@ -43,7 +41,8 @@ type richLogger struct {
 
 func (l *richLogger) Debug(v ...any) {
 	if shallLog(DebugLevel) {
-		l.debug(fmt.Sprint(v...))
+		msg, fields := splitLogArgs(v)
+		l.debug(msg, fields...)
 	}
 }
 
@@ -67,7 +66,8 @@ func (l *richLogger) Debugw(msg string, fields ...LogField) {
 
 func (l *richLogger) Error(v ...any) {
 	if shallLog(ErrorLevel) {
-		l.err(fmt.Sprint(v...))
+		msg, fields := splitLogArgs(v)
+		l.err(msg, fields...)
 	}
 }
 
@@ -91,7 +91,8 @@ func (l *richLogger) Errorw(msg string, fields ...LogField) {
 
 func (l *richLogger) Info(v ...any) {
 	if shallLog(InfoLevel) {
-		l.info(fmt.Sprint(v...))
+		msg, fields := splitLogArgs(v)
+		l.info(msg, fields...)
 	}
 }
 
@@ -115,7 +116,8 @@ func (l *richLogger) Infow(msg string, fields ...LogField) {
 
 func (l *richLogger) Slow(v ...any) {
 	if shallLog(ErrorLevel) {
-		l.slow(fmt.Sprint(v...))
+		msg, fields := splitLogArgs(v)
+		l.slow(msg, fields...)
 	}
 }
 
@@ -158,7 +160,7 @@ func (l *richLogger) WithContext(ctx context.Context) Logger {
 }
 
 func (l *richLogger) WithDuration(duration time.Duration) Logger {
-	fields := append(l.fields, Field(durationKey, timex.ReprOfDuration(duration)))
+	fields := append(l.fields, Field(durationKey, reprLogDuration(duration)))
 
 	return &richLogger{
 		ctx:        l.ctx,
@@ -189,14 +191,13 @@ func (l *richLogger) buildFields(fields ...LogField) []LogField {
 		return fields
 	}
 
-	traceID := trace.TraceIDFromContext(l.ctx)
-	if len(traceID) > 0 {
-		fields = append(fields, Field(traceKey, traceID))
+	spanContext := oteltrace.SpanContextFromContext(l.ctx)
+	if spanContext.HasTraceID() {
+		fields = append(fields, Field(traceKey, spanContext.TraceID().String()))
 	}
 
-	spanID := trace.SpanIDFromContext(l.ctx)
-	if len(spanID) > 0 {
-		fields = append(fields, Field(spanKey, spanID))
+	if spanContext.HasSpanID() {
+		fields = append(fields, Field(spanKey, spanContext.SpanID().String()))
 	}
 
 	val := l.ctx.Value(fieldsContextKey)
@@ -206,29 +207,29 @@ func (l *richLogger) buildFields(fields ...LogField) []LogField {
 		}
 	}
 
-	return fields
+	return redactFields(fields)
 }
 
 func (l *richLogger) debug(v any, fields ...LogField) {
 	if shallLog(DebugLevel) {
-		getWriter().Debug(v, l.buildFields(fields...)...)
+		getWriter().Debug(redactValue(v), l.buildFields(fields...)...)
 	}
 }
 
 func (l *richLogger) err(v any, fields ...LogField) {
 	if shallLog(ErrorLevel) {
-		getWriter().Error(v, l.buildFields(fields...)...)
+		getWriter().Error(redactValue(v), l.buildFields(fields...)...)
 	}
 }
 
 func (l *richLogger) info(v any, fields ...LogField) {
 	if shallLog(InfoLevel) {
-		getWriter().Info(v, l.buildFields(fields...)...)
+		getWriter().Info(redactValue(v), l.buildFields(fields...)...)
 	}
 }
 
 func (l *richLogger) slow(v any, fields ...LogField) {
 	if shallLog(ErrorLevel) {
-		getWriter().Slow(v, l.buildFields(fields...)...)
+		getWriter().Slow(redactValue(v), l.buildFields(fields...)...)
 	}
 }

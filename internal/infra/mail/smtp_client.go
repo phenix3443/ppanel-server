@@ -1,0 +1,48 @@
+package mail
+
+import (
+	"crypto/tls"
+
+	"gopkg.in/gomail.v2"
+)
+
+type SMTPClient struct {
+	conf   SMTPConfig
+	dailer *gomail.Dialer
+}
+type SMTPConfig struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	User     string `json:"user"`
+	Pass     string `json:"pass"`
+	From     string `json:"from"`
+	ReplyTo  string `json:"reply_to"`
+	SSL      bool   `json:"ssl"`
+	SiteName string `json:"siteName"`
+}
+
+func NewSMTPClient(conf *SMTPConfig) *SMTPClient {
+	if conf == nil {
+		return nil
+	}
+	dailer := gomail.NewDialer(conf.Host, conf.Port, conf.User, conf.Pass)
+	dailer.TLSConfig = &tls.Config{
+		InsecureSkipVerify: true,
+		MinVersion:         tls.VersionTLS12,
+		ServerName:         conf.Host,
+	}
+
+	return &SMTPClient{conf: *conf, dailer: dailer}
+}
+
+func (m *SMTPClient) Send(to []string, subject, body string) error {
+	msg := gomail.NewMessage()
+	msg.SetAddressHeader("From", m.conf.From, m.conf.SiteName)
+	if m.conf.ReplyTo != "" {
+		msg.SetHeader("Reply-To", m.conf.ReplyTo)
+	}
+	msg.SetHeader("To", to...)
+	msg.SetHeader("Subject", subject)
+	msg.SetBody("text/html", body)
+	return m.dailer.DialAndSend(msg)
+}

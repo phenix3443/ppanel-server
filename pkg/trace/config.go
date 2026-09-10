@@ -7,7 +7,7 @@ const TraceName = "ppanel"
 type Config struct {
 	Name     string  `yaml:"Name"`
 	Endpoint string  `yaml:"Endpoint"`
-	Sampler  float64 `yaml:"Sampler" default:"1.0"`
+	Sampler  float64 `yaml:"Sampler" default:"0.1"`
 	Batcher  string  `yaml:"Batcher" default:"jaeger"`
 	// OtlpHeaders represents the headers for OTLP gRPC or HTTP transport.
 	// For example:

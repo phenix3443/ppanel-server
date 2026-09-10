@@ -1,0 +1,71 @@
+package auditlog
+
+import (
+	"context"
+
+	dto "github.com/perfect-panel/server/internal/module/platform/contract"
+	"github.com/perfect-panel/server/internal/module/platform/entity/log"
+	"github.com/perfect-panel/server/pkg/logger"
+	"github.com/perfect-panel/server/pkg/xerr"
+	"github.com/pkg/errors"
+)
+
+type FilterLoginLogLogic struct {
+	logger.Logger
+	ctx  context.Context
+	deps Deps
+}
+
+// NewFilterLoginLogLogic Filter login log
+func newFilterLoginLogLogic(ctx context.Context, deps Deps) *FilterLoginLogLogic {
+	return &FilterLoginLogLogic{
+		Logger: logger.WithContext(ctx),
+		ctx:    ctx,
+		deps:   deps,
+	}
+}
+
+func (l *FilterLoginLogLogic) FilterLoginLog(req *dto.FilterLoginLogRequest) (resp *dto.FilterLoginLogResponse, err error) {
+	data, total, err := l.deps.Logs.FilterSystemLog(l.ctx, &log.FilterParams{
+		Page:     req.Page,
+		Size:     req.Size,
+		Type:     log.TypeLogin.Uint8(),
+		ObjectID: req.UserId,
+		Data:     req.Date,
+		Search:   req.Search,
+	})
+
+	if err != nil {
+		l.Errorf("[FilterLoginLog] failed to filter system log: %v", err.Error())
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "failed to filter system log: %v", err.Error())
+	}
+	var list []dto.LoginLog
+	for _, datum := range data {
+		var item log.Login
+		err = item.Unmarshal([]byte(datum.Content))
+		if err != nil {
+			l.Errorf("[FilterLoginLog] failed to unmarshal content: %v", err.Error())
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "corrupt login log %d: %v", datum.Id, err)
+		}
+		list = append(list, dto.LoginLog{
+			UserId:           datum.ObjectID,
+			Method:           item.Method,
+			LoginIP:          item.LoginIP,
+			UserAgent:        item.UserAgent,
+			Success:          item.Success,
+			Timestamp:        datum.CreatedAt.UnixMilli(),
+			ActorID:          item.ActorID,
+			IPCountryCode:    item.IPCountryCode,
+			IPCountry:        item.IPCountry,
+			IPRegion:         item.IPRegion,
+			IPCity:           item.IPCity,
+			IPASN:            item.IPASN,
+			IPASOrganization: item.IPASOrganization,
+		})
+	}
+
+	return &dto.FilterLoginLogResponse{
+		Total: total,
+		List:  list,
+	}, nil
+}

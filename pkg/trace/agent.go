@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"strings"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -18,7 +19,6 @@ import (
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 
-	"github.com/perfect-panel/server/pkg/lang"
 	"github.com/perfect-panel/server/pkg/logger"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 )
@@ -33,7 +33,7 @@ const (
 )
 
 var (
-	agents = make(map[string]lang.PlaceholderType)
+	agents = make(map[string]struct{})
 	lock   sync.Mutex
 	tp     *sdktrace.TracerProvider
 )
@@ -57,7 +57,7 @@ func StartAgent(c Config) {
 		return
 	}
 
-	agents[c.Endpoint] = lang.Placeholder
+	agents[c.Endpoint] = struct{}{}
 }
 
 // StopAgent shuts down the span processors in the order they were registered.
@@ -69,6 +69,7 @@ func StopAgent() {
 		_ = tp.Shutdown(context.Background())
 		tp = nil
 	}
+	clear(agents)
 }
 
 func createExporter(c Config) (sdktrace.SpanExporter, error) {
@@ -114,9 +115,13 @@ func createExporter(c Config) (sdktrace.SpanExporter, error) {
 		}
 		return otlptracehttp.New(context.Background(), opts...)
 	case kindFile:
-		f, err := os.OpenFile(c.Endpoint, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+		f, err := os.OpenFile(c.Endpoint, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 		if err != nil {
 			return nil, fmt.Errorf("file exporter endpoint error: %s", err.Error())
+		}
+		if err := os.Chmod(c.Endpoint, 0o600); err != nil {
+			_ = f.Close()
+			return nil, fmt.Errorf("secure file exporter endpoint: %s", err.Error())
 		}
 		return stdouttrace.New(stdouttrace.WithWriter(f))
 	default:
@@ -126,10 +131,20 @@ func createExporter(c Config) (sdktrace.SpanExporter, error) {
 
 func startAgent(c Config) error {
 	AddResources(semconv.ServiceNameKey.String(c.Name))
+	sampler := c.Sampler
+	// Without an exporter there is no trace destination. Keep propagation and
+	// request IDs, but avoid recording every span in memory.
+	if strings.TrimSpace(c.Endpoint) == "" {
+		sampler = 0
+	}
+	if sampler < 0 {
+		sampler = 0
+	} else if sampler > 1 {
+		sampler = 1
+	}
 
 	opts := []sdktrace.TracerProviderOption{
-		// Set the sampling rate based on the parent span to 100%
-		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(c.Sampler))),
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(sampler))),
 		// Record information about this application in a Resource.
 		sdktrace.WithResource(resource.NewSchemaless(attrResources...)),
 	}

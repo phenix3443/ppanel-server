@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_order_event_published_created;

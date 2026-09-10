@@ -19,25 +19,25 @@ type LogConf struct {
 	Path string `yaml:"Path" default:"logs"`
 	// Level represents the log level, default is `info`.
 	Level string `yaml:"Level" default:"info"`
-	// MaxContentLength represents the max content bytes, default is no limit.
-	MaxContentLength uint32 `yaml:"MaxContentLength" default:"0"`
+	// MaxContentLength represents the max bytes per textual log value.
+	MaxContentLength uint32 `yaml:"MaxContentLength" default:"16384"`
 	// Compress represents whether to compress the log file, default is `false`.
 	Compress bool `yaml:"Compress" default:"false"`
 	// Stat represents whether to log statistics, default is `true`.
 	Stat bool `yaml:"Stat" default:"true"`
-	// KeepDays represents how many days the log files will be kept. Default to keep all files.
+	// KeepDays represents how many days the log files will be kept. Defaults to 30 days.
 	// Only take effect when Mode is `file` or `volume`, both work when Rotation is `daily` or `size`.
-	KeepDays int `yaml:"KeepDays" default:"0"`
+	KeepDays int `yaml:"KeepDays" default:"30"`
 	// StackCooldownMillis represents the cooldown time for stack logging, default is 100ms.
 	StackCooldownMillis int `yaml:"StackCooldownMillis" default:"100"`
-	// MaxBackups represents how many backup log files will be kept. 0 means all files will be kept forever.
+	// MaxBackups represents how many backup log files will be kept. Defaults to 30.
 	// Only take effect when RotationRuleType is `size`.
 	// Even though `MaxBackups` sets 0, log files will still be removed
 	// if the `KeepDays` limitation is reached.
-	MaxBackups int `yaml:"MaxBackups" default:"0"`
-	// MaxSize represents how much space the writing log file takes up. 0 means no limit. The unit is `MB`.
+	MaxBackups int `yaml:"MaxBackups" default:"30"`
+	// MaxSize represents how much space the writing log file takes up. Defaults to 100 MB.
 	// Only take effect when RotationRuleType is `size`
-	MaxSize int `yaml:"MaxSize" default:"0"`
+	MaxSize int `yaml:"MaxSize" default:"100"`
 	// Rotation represents the type of log rotation rule. Default is `daily`.
 	// daily: daily rotation.
 	// size: size limited rotation.

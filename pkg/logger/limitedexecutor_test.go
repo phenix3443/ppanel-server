@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/perfect-panel/server/pkg/timex"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -24,7 +23,7 @@ func TestLimitedExecutor_logOrDiscard(t *testing.T) {
 		{
 			name:      "regular",
 			threshold: time.Hour,
-			lastTime:  timex.Now(),
+			lastTime:  relativeLogTime(),
 			discarded: 10,
 			executed:  false,
 		},
@@ -45,7 +44,7 @@ func TestLimitedExecutor_logOrDiscard(t *testing.T) {
 			executor := newLimitedExecutor(0)
 			executor.threshold = test.threshold
 			executor.discarded = test.discarded
-			executor.lastTime.Set(test.lastTime)
+			executor.lastTime.Store(int64(test.lastTime))
 
 			var run int32
 			executor.logOrDiscard(func() {

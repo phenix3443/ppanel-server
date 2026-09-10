@@ -12,9 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/perfect-panel/server/pkg/fs"
-	"github.com/perfect-panel/server/pkg/lang"
 )
 
 const (
@@ -45,14 +42,13 @@ type (
 
 	// A RotateLogger is a Logger that can rotate log files with given rules.
 	RotateLogger struct {
-		filename string
-		backup   string
-		fp       *os.File
-		channel  chan []byte
-		done     chan lang.PlaceholderType
-		rule     RotateRule
-		compress bool
-		// can't use threading.RoutineGroup because of cycle import
+		filename    string
+		backup      string
+		fp          *os.File
+		channel     chan []byte
+		done        chan struct{}
+		rule        RotateRule
+		compress    bool
 		waitGroup   sync.WaitGroup
 		closeOnce   sync.Once
 		currentSize int64
@@ -187,12 +183,12 @@ func (r *SizeLimitRotateRule) OutdatedFiles() []string {
 
 	sort.Strings(files)
 
-	outdated := make(map[string]lang.PlaceholderType)
+	outdated := make(map[string]struct{})
 
 	// test if too many backups
 	if r.maxBackups > 0 && len(files) > r.maxBackups {
 		for _, f := range files[:len(files)-r.maxBackups] {
-			outdated[f] = lang.Placeholder
+			outdated[f] = struct{}{}
 		}
 		files = files[len(files)-r.maxBackups:]
 	}
@@ -208,7 +204,7 @@ func (r *SizeLimitRotateRule) OutdatedFiles() []string {
 			if f >= boundaryFile {
 				break
 			}
-			outdated[f] = lang.Placeholder
+			outdated[f] = struct{}{}
 		}
 	}
 
@@ -235,7 +231,7 @@ func NewLogger(filename string, rule RotateRule, compress bool) (*RotateLogger, 
 	l := &RotateLogger{
 		filename: filename,
 		channel:  make(chan []byte, bufferSize),
-		done:     make(chan lang.PlaceholderType),
+		done:     make(chan struct{}),
 		rule:     rule,
 		compress: compress,
 	}
@@ -294,7 +290,7 @@ func (l *RotateLogger) initialize() error {
 			}
 		}
 
-		if l.fp, err = os.Create(l.filename); err != nil {
+		if l.fp, err = os.OpenFile(l.filename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, defaultFileMode); err != nil {
 			return err
 		}
 	} else {
@@ -304,8 +300,11 @@ func (l *RotateLogger) initialize() error {
 
 		l.currentSize = fileInfo.Size()
 	}
-
-	fs.CloseOnExec(l.fp)
+	if err := os.Chmod(l.filename, defaultFileMode); err != nil {
+		_ = l.fp.Close()
+		l.fp = nil
+		return err
+	}
 
 	return nil
 }
@@ -340,7 +339,6 @@ func (l *RotateLogger) maybeDeleteOutdatedFiles() {
 
 func (l *RotateLogger) postRotate(file string) {
 	go func() {
-		// we cannot use threading.GoSafe here, because of import cycle.
 		l.maybeCompressFile(file)
 		l.maybeDeleteOutdatedFiles()
 	}()
@@ -367,9 +365,7 @@ func (l *RotateLogger) rotate() error {
 	}
 
 	l.backup = l.rule.BackupFileName()
-	if l.fp, err = os.Create(l.filename); err == nil {
-		fs.CloseOnExec(l.fp)
-	}
+	l.fp, err = os.OpenFile(l.filename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, defaultFileMode)
 
 	return err
 }

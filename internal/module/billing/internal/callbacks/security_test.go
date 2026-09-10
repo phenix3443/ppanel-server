@@ -1,0 +1,381 @@
+package callbacks
+
+import (
+	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/perfect-panel/server/internal/infra/requestctx"
+	"github.com/perfect-panel/server/internal/infra/taskqueue"
+	dto "github.com/perfect-panel/server/internal/module/billing/contract"
+	"github.com/perfect-panel/server/internal/module/billing/entity/order"
+	"github.com/perfect-panel/server/internal/module/billing/entity/payment"
+	"github.com/perfect-panel/server/internal/module/billing/internal/payment/alipay"
+	"github.com/perfect-panel/server/internal/module/billing/internal/payment/epay"
+	"github.com/perfect-panel/server/internal/module/billing/internal/payment/stripe"
+	"github.com/perfect-panel/server/internal/module/billing/internal/settle"
+	"github.com/perfect-panel/server/internal/repository"
+	"gorm.io/gorm"
+)
+
+type callbackOrderRepo struct {
+	repository.OrderRepo
+	order     *order.Order
+	markCount int
+}
+
+func (r *callbackOrderRepo) FindOneByOrderNo(_ context.Context, orderNo string) (*order.Order, error) {
+	if r.order.OrderNo != orderNo {
+		return nil, errUnexpectedOrder
+	}
+	return r.order, nil
+}
+
+func (r *callbackOrderRepo) MarkOrderPaid(_ context.Context, orderNo, tradeNo string, _ ...*gorm.DB) (bool, error) {
+	if r.order.OrderNo != orderNo || r.order.Status != settle.StatusPending {
+		return false, nil
+	}
+	r.order.Status = settle.StatusPaid
+	r.order.TradeNo = tradeNo
+	r.markCount++
+	return true, nil
+}
+
+type fakeActivationQueue struct {
+	enqueued []string
+}
+
+func (f *fakeActivationQueue) EnqueueActivation(_ context.Context, orderNo string) error {
+	f.enqueued = append(f.enqueued, orderNo)
+	return nil
+}
+
+var errUnexpectedOrder = errors.New("unexpected order")
+
+func TestEPayNotifyRejectsInvalidSignatureWhenDebugEnabled(t *testing.T) {
+	paymentConfig := &payment.Payment{
+		Id:       10,
+		Platform: "EPay",
+		Config:   `{"pid":"1001","url":"https://pay.example","key":"secret","type":"alipay"}`,
+	}
+	ctx := context.WithValue(context.Background(), requestctx.CtxKeyPayment, paymentConfig)
+	svc := NewService(nil, nil)
+
+	err := svc.EPayNotify(ctx, EPayNotifyMeta{
+		Method: "POST",
+		Params: map[string]string{
+			"out_trade_no": "order-1",
+			"trade_status": "TRADE_SUCCESS",
+			"sign":         "invalid",
+		},
+	}, &dto.EPayNotifyRequest{OutTradeNo: "order-1", TradeStatus: "TRADE_SUCCESS", Sign: "invalid"})
+	if err == nil || !strings.Contains(err.Error(), "verify sign failed") {
+		t.Fatalf("debug mode must still reject invalid signature, got %v", err)
+	}
+}
+
+func TestEPayNotifySettlesOnlyAfterSignedAndQueriedDetailsMatch(t *testing.T) {
+	queryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"code": 1, "pid": "1001", "trade_no": "trade-1", "out_trade_no": "order-1",
+			"type": "alipay", "money": "10.00", "status": 1,
+		})
+	}))
+	defer queryServer.Close()
+
+	queue := &fakeActivationQueue{}
+
+	paymentConfig := &payment.Payment{
+		Id:       10,
+		Platform: "EPay",
+		Config:   `{"pid":"1001","url":"` + queryServer.URL + `","key":"secret","type":"alipay"}`,
+	}
+	orders := &callbackOrderRepo{order: &order.Order{
+		OrderNo: "order-1", PaymentId: 10, Method: "EPay", Status: settle.StatusPending,
+		PaymentAmount: 1000, PaymentCurrency: "CNY",
+	}}
+	params := map[string]string{
+		"pid": "1001", "trade_no": "trade-1", "out_trade_no": "order-1", "type": "alipay",
+		"name": "product", "money": "10.00", "trade_status": "TRADE_SUCCESS", "param": "", "sign_type": "MD5",
+	}
+	params["sign"] = signEPayTestParams(params, "secret")
+	ctx := context.WithValue(context.Background(), requestctx.CtxKeyPayment, paymentConfig)
+	svc := NewService(orders, queue)
+	meta := EPayNotifyMeta{Method: "POST", Params: params}
+
+	req := &dto.EPayNotifyRequest{
+		Pid: "1001", TradeNo: "trade-1", OutTradeNo: "order-1", Type: "alipay", Name: "product",
+		Money: "10.00", TradeStatus: "TRADE_SUCCESS", Sign: params["sign"], SignType: "MD5",
+	}
+	err := svc.EPayNotify(ctx, meta, req)
+	if err != nil {
+		t.Fatalf("EPayNotify: %v", err)
+	}
+	if err := svc.EPayNotify(ctx, meta, req); err != nil {
+		t.Fatalf("duplicate EPayNotify must be idempotent: %v", err)
+	}
+	if orders.markCount != 1 || orders.order.Status != settle.StatusPaid || orders.order.TradeNo != "trade-1" {
+		t.Fatalf("order was not settled exactly once: %+v, marks=%d", orders.order, orders.markCount)
+	}
+}
+
+func TestEPayNotifySettlesWithSignedCallbackWhenQueryUnsupported(t *testing.T) {
+	queryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer queryServer.Close()
+
+	queue := &fakeActivationQueue{}
+
+	paymentConfig := &payment.Payment{
+		Id:       10,
+		Platform: "EPay",
+		Config:   `{"pid":"1001","url":"` + queryServer.URL + `","key":"secret","type":"alipay"}`,
+	}
+	orders := &callbackOrderRepo{order: &order.Order{
+		OrderNo: "order-1", PaymentId: 10, Method: "EPay", Status: settle.StatusPending,
+		PaymentAmount: 1000, PaymentCurrency: "CNY",
+	}}
+	params := map[string]string{
+		"pid": "1001", "trade_no": "trade-1", "out_trade_no": "order-1", "type": "alipay",
+		"name": "product", "money": "10.00", "trade_status": "TRADE_SUCCESS", "param": "", "sign_type": "MD5",
+	}
+	params["sign"] = signEPayTestParams(params, "secret")
+	ctx := context.WithValue(context.Background(), requestctx.CtxKeyPayment, paymentConfig)
+	svc := NewService(orders, queue)
+	meta := EPayNotifyMeta{Method: "POST", Params: params}
+
+	req := &dto.EPayNotifyRequest{
+		Pid: "1001", TradeNo: "trade-1", OutTradeNo: "order-1", Type: "alipay", Name: "product",
+		Money: "10.00", TradeStatus: "TRADE_SUCCESS", Sign: params["sign"], SignType: "MD5",
+	}
+	if err := svc.EPayNotify(ctx, meta, req); err != nil {
+		t.Fatalf("EPayNotify: %v", err)
+	}
+	if orders.markCount != 1 || orders.order.Status != settle.StatusPaid || orders.order.TradeNo != "trade-1" {
+		t.Fatalf("signed fallback callback did not settle order: %+v, marks=%d", orders.order, orders.markCount)
+	}
+}
+
+func TestEPayNotifyRejectsAmountMismatchWhenQueryUnsupported(t *testing.T) {
+	queryServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer queryServer.Close()
+
+	queue := &fakeActivationQueue{}
+
+	paymentConfig := &payment.Payment{
+		Id:       10,
+		Platform: "EPay",
+		Config:   `{"pid":"1001","url":"` + queryServer.URL + `","key":"secret","type":"alipay"}`,
+	}
+	orders := &callbackOrderRepo{order: &order.Order{
+		OrderNo: "order-1", PaymentId: 10, Method: "EPay", Status: settle.StatusPending,
+		PaymentAmount: 1000, PaymentCurrency: "CNY",
+	}}
+	params := map[string]string{
+		"pid": "1001", "trade_no": "trade-1", "out_trade_no": "order-1", "type": "alipay",
+		"name": "product", "money": "9.99", "trade_status": "TRADE_SUCCESS", "param": "", "sign_type": "MD5",
+	}
+	params["sign"] = signEPayTestParams(params, "secret")
+	ctx := context.WithValue(context.Background(), requestctx.CtxKeyPayment, paymentConfig)
+	svc := NewService(orders, queue)
+	meta := EPayNotifyMeta{Method: "POST", Params: params}
+
+	req := &dto.EPayNotifyRequest{
+		Pid: "1001", TradeNo: "trade-1", OutTradeNo: "order-1", Type: "alipay", Name: "product",
+		Money: "9.99", TradeStatus: "TRADE_SUCCESS", Sign: params["sign"], SignType: "MD5",
+	}
+	if err := svc.EPayNotify(ctx, meta, req); err == nil {
+		t.Fatal("callback amount mismatch must be rejected even when order queries are unsupported")
+	}
+	if orders.markCount != 0 || orders.order.Status != settle.StatusPending {
+		t.Fatalf("amount-mismatched callback settled order: %+v, marks=%d", orders.order, orders.markCount)
+	}
+}
+
+func TestEPayCredentialsRejectUnsupportedPlatform(t *testing.T) {
+	_, err := epayCredentialsForPayment(&payment.Payment{Platform: "CryptoSaaS"})
+	if err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("unsupported platform must be rejected, got %v", err)
+	}
+}
+
+func TestValidateOrderPaymentRequiresExactConfigurationBinding(t *testing.T) {
+	paymentConfig := &payment.Payment{Id: 10, Platform: "EPay"}
+	if err := validateOrderPayment(&order.Order{PaymentId: 10, Method: "EPay"}, paymentConfig); err != nil {
+		t.Fatalf("matching payment binding rejected: %v", err)
+	}
+	if err := validateOrderPayment(&order.Order{PaymentId: 11, Method: "EPay"}, paymentConfig); err == nil {
+		t.Fatal("mismatched payment id must be rejected")
+	}
+	if err := validateOrderPayment(&order.Order{PaymentId: 10, Method: "Stripe"}, paymentConfig); err == nil {
+		t.Fatal("mismatched payment platform must be rejected")
+	}
+}
+
+func TestValidatePaymentExpectationRequiresAmountAndCurrency(t *testing.T) {
+	orderInfo := &order.Order{PaymentAmount: 1000, PaymentCurrency: "CNY"}
+	if err := validatePaymentExpectation(orderInfo, 1000, "cny"); err != nil {
+		t.Fatalf("matching expectation rejected: %v", err)
+	}
+	if err := validatePaymentExpectation(orderInfo, 999, "CNY"); err == nil {
+		t.Fatal("amount mismatch must be rejected")
+	}
+	if err := validatePaymentExpectation(orderInfo, 1000, "USD"); err == nil {
+		t.Fatal("currency mismatch must be rejected")
+	}
+	if err := validatePaymentExpectation(&order.Order{PaymentAmount: 1000}, 1000, "CNY"); err == nil {
+		t.Fatal("missing checkout snapshot must fail closed")
+	}
+}
+
+func TestValidateQueriedEPayOrderRejectsGatewayMismatch(t *testing.T) {
+	req := &dto.EPayNotifyRequest{Pid: "1001", OutTradeNo: "order-1", TradeNo: "trade-1", Type: "alipay", Money: "10.00"}
+	credentials := epayCredentials{merchantID: "1001", paymentType: "alipay"}
+	valid := &epay.QueryResult{MerchantID: "1001", OrderNo: "order-1", TradeNo: "trade-1", Type: "alipay", Money: "10.00", Paid: true}
+	if err := validateQueriedEPayOrder(valid, req, credentials, 1000); err != nil {
+		t.Fatalf("matching gateway order rejected: %v", err)
+	}
+	changed := *valid
+	changed.Money = "1.00"
+	if err := validateQueriedEPayOrder(&changed, req, credentials, 1000); err == nil {
+		t.Fatal("gateway amount mismatch must be rejected")
+	}
+	changed = *valid
+	changed.MerchantID = "other"
+	if err := validateQueriedEPayOrder(&changed, req, credentials, 1000); err == nil {
+		t.Fatal("gateway merchant mismatch must be rejected")
+	}
+	changed = *valid
+	changed.Paid = false
+	if err := validateQueriedEPayOrder(&changed, req, credentials, 1000); err == nil {
+		t.Fatal("unpaid gateway order must be rejected")
+	}
+	if err := validateQueriedEPayOrder(&epay.QueryResult{Paid: true, StatusOnly: true}, req, credentials, 1000); err != nil {
+		t.Fatalf("paid status-only gateway query rejected: %v", err)
+	}
+}
+
+func TestActivationTaskIDIsDeterministicPerOrder(t *testing.T) {
+	first := taskqueue.ActivationTaskID("order-1")
+	if first != taskqueue.ActivationTaskID("order-1") {
+		t.Fatal("activation task id must be deterministic")
+	}
+	if first == taskqueue.ActivationTaskID("order-2") {
+		t.Fatal("different orders must not share an activation task id")
+	}
+}
+
+func TestFinishedOrderDuplicateRequiresSameTradeNumber(t *testing.T) {
+	ctx := context.Background()
+	orderInfo := &order.Order{Status: settle.StatusFinished, TradeNo: "trade-1"}
+	finished, err := finishedOrderDuplicate(ctx, orderInfo, "trade-1")
+	if err != nil || !finished {
+		t.Fatalf("matching finished duplicate rejected: finished=%t err=%v", finished, err)
+	}
+	if _, err := finishedOrderDuplicate(ctx, orderInfo, "trade-2"); err == nil {
+		t.Fatal("finished callback with another trade number must be rejected")
+	}
+}
+
+// TestFinishedOrderDuplicateToleratesEmptyTradeNo verifies that historical
+// orders which were completed before trade_no persistence was introduced are
+// treated as safe duplicates rather than blocking the payment callback.
+func TestFinishedOrderDuplicateToleratesEmptyTradeNo(t *testing.T) {
+	ctx := context.Background()
+	// Simulate a legacy finished order whose TradeNo was never persisted.
+	orderInfo := &order.Order{Status: settle.StatusFinished, TradeNo: ""}
+	finished, err := finishedOrderDuplicate(ctx, orderInfo, "trade-abc")
+	if err != nil {
+		t.Fatalf("legacy finished order (empty TradeNo) must not return an error, got: %v", err)
+	}
+	if !finished {
+		t.Fatal("legacy finished order (empty TradeNo) must be treated as a duplicate")
+	}
+}
+
+func TestCancelledOrFailedOrderCannotSettle(t *testing.T) {
+	for _, status := range []uint8{3, 4} {
+		if err := validateOrderCanSettle(&order.Order{Status: status}); err == nil {
+			t.Fatalf("status %d must not be settled", status)
+		}
+	}
+}
+
+func TestStripeCallbackRequiresBoundConfigAmountCurrencyAndMethod(t *testing.T) {
+	ctx := context.Background()
+	paymentConfig := &payment.Payment{Id: 20, Platform: "Stripe"}
+	stripeConfig := &payment.StripeConfig{Payment: "card"}
+	orderInfo := &order.Order{
+		PaymentId: 20, Method: "Stripe", Status: settle.StatusPending,
+		PaymentAmount: 1000, PaymentCurrency: "USD", TradeNo: "pi_1",
+	}
+	notify := &stripe.NotifyResult{TradeNo: "pi_1", Method: "card", Amount: 1000, Currency: "usd"}
+	if finished, err := validateStripeCallback(ctx, orderInfo, paymentConfig, stripeConfig, notify); err != nil || finished {
+		t.Fatalf("valid Stripe callback rejected: finished=%t err=%v", finished, err)
+	}
+	changed := *notify
+	changed.Amount = 999
+	if _, err := validateStripeCallback(ctx, orderInfo, paymentConfig, stripeConfig, &changed); err == nil {
+		t.Fatal("Stripe amount mismatch must be rejected")
+	}
+	changed = *notify
+	changed.Currency = "eur"
+	if _, err := validateStripeCallback(ctx, orderInfo, paymentConfig, stripeConfig, &changed); err == nil {
+		t.Fatal("Stripe currency mismatch must be rejected")
+	}
+	changed = *notify
+	changed.Method = "wechat_pay"
+	if _, err := validateStripeCallback(ctx, orderInfo, paymentConfig, stripeConfig, &changed); err == nil {
+		t.Fatal("Stripe payment method mismatch must be rejected")
+	}
+}
+
+func TestAlipayCallbackRequiresBoundAppAndExactAmount(t *testing.T) {
+	ctx := context.Background()
+	paymentConfig := &payment.Payment{Id: 30, Platform: "AlipayF2F"}
+	alipayConfig := &payment.AlipayF2FConfig{AppId: "app-1"}
+	orderInfo := &order.Order{
+		PaymentId: 30, Method: "AlipayF2F", Status: settle.StatusPending,
+		PaymentAmount: 1000, PaymentCurrency: "CNY",
+	}
+	notify := &alipay.Notification{TradeNo: "trade-1", AppId: "app-1", Amount: 1000}
+	if finished, err := validateAlipayCallback(ctx, orderInfo, paymentConfig, alipayConfig, notify); err != nil || finished {
+		t.Fatalf("valid Alipay callback rejected: finished=%t err=%v", finished, err)
+	}
+	changed := *notify
+	changed.AppId = "other-app"
+	if _, err := validateAlipayCallback(ctx, orderInfo, paymentConfig, alipayConfig, &changed); err == nil {
+		t.Fatal("Alipay app id mismatch must be rejected")
+	}
+	changed = *notify
+	changed.Amount = 999
+	if _, err := validateAlipayCallback(ctx, orderInfo, paymentConfig, alipayConfig, &changed); err == nil {
+		t.Fatal("Alipay amount mismatch must be rejected")
+	}
+}
+
+func signEPayTestParams(params map[string]string, key string) string {
+	keys := make([]string, 0, len(params))
+	for name, value := range params {
+		if value != "" && name != "sign" && name != "sign_type" {
+			keys = append(keys, name)
+		}
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, name := range keys {
+		parts = append(parts, name+"="+params[name])
+	}
+	digest := md5.Sum([]byte(strings.Join(parts, "&") + key))
+	return hex.EncodeToString(digest[:])
+}

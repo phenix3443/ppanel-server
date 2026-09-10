@@ -1,0 +1,39 @@
+package announcement
+
+import (
+	"context"
+
+	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/perfect-panel/server/internal/module/support"
+	dto "github.com/perfect-panel/server/internal/module/support/contract"
+	"github.com/perfect-panel/server/internal/transport/http/validation"
+	"github.com/perfect-panel/server/pkg/httpx"
+)
+
+// GetAnnouncementHandler documents Get announcement.
+//
+// @Summary Get announcement
+// @Tags admin
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request query dto.GetAnnouncementRequest false "Request parameters"
+// @Success 200 {object} httpx.ResponseSuccessBean{data=dto.Announcement}
+// @Router /v1/admin/announcement/detail [get]
+func GetAnnouncementHandler(service support.Service) app.HandlerFunc {
+	return func(ctx context.Context, c *app.RequestContext) {
+		var req dto.GetAnnouncementRequest
+		if err := httpx.ShouldBind(c, &req); err != nil {
+			httpx.ParamErrorResult(c, err)
+			return
+		}
+		validateErr := validation.Validate(&req)
+		if validateErr != nil {
+			httpx.ParamErrorResult(c, validateErr)
+			return
+		}
+
+		resp, err := service.GetAnnouncement(ctx, &req)
+		httpx.HttpResult(c, resp, err)
+	}
+}

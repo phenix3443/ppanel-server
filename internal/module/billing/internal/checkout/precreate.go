@@ -1,0 +1,167 @@
+package checkout
+
+import (
+	"context"
+	"encoding/json"
+	"slices"
+
+	"github.com/perfect-panel/server/internal/infra/requestctx"
+	dto "github.com/perfect-panel/server/internal/module/billing/contract"
+	"github.com/perfect-panel/server/internal/module/identity/entity/user"
+	"github.com/perfect-panel/server/internal/module/subscription/entity/usersub"
+	"github.com/perfect-panel/server/pkg/logger"
+	"github.com/perfect-panel/server/pkg/slicesx"
+	"github.com/perfect-panel/server/pkg/xerr"
+	"github.com/pkg/errors"
+	"gorm.io/gorm"
+)
+
+// PreCreateOrder calculates order pricing preview including discounts, coupons, gift amounts, and fees
+// without actually creating an order. It validates subscription plans, coupons, and payment methods
+// to provide accurate pricing information for the frontend order preview.
+func (s *Service) PreCreateOrder(ctx context.Context, req *dto.PurchaseOrderRequest) (*dto.PreOrderResponse, error) {
+	log := logger.WithContext(ctx)
+	u, ok := ctx.Value(requestctx.CtxKeyUser).(*user.User)
+	if !ok {
+		logger.Error("current user is not found in context")
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.InvalidAccess), "Invalid Access")
+	}
+
+	if req.Quantity <= 0 {
+		log.Debugf("[PreCreateOrder] Quantity is less than or equal to 0, setting to 1")
+		req.Quantity = 1
+	}
+
+	// find subscribe plan
+	sub, err := s.deps.Plans.FindOne(ctx, req.SubscribeId)
+	if err != nil {
+		log.Errorw("[PreCreateOrder] Database query error", logger.Field("error", err.Error()), logger.Field("subscribe_id", req.SubscribeId))
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "find subscribe error: %v", err.Error())
+	}
+
+	if req.UserSubscribeId < 0 {
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.InvalidParams), "invalid user subscribe id")
+	}
+	if req.UserSubscribeId > 0 {
+		userSubscribe, err := s.deps.UserSubs.FindOneSubscribe(ctx, req.UserSubscribeId)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, errors.Wrapf(xerr.NewErrCode(xerr.InvalidParams), "user subscribe not found")
+			}
+			log.Errorw("[PreCreateOrder] Database query error",
+				logger.Field("error", err.Error()),
+				logger.Field("user_subscribe_id", req.UserSubscribeId))
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "find user subscribe error: %v", err.Error())
+		}
+		if userSubscribe.UserId != u.Id {
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.InvalidAccess), "user subscribe does not belong to current user")
+		}
+		if userSubscribe.SubscribeId != req.SubscribeId {
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.InvalidParams), "user subscribe does not match subscribe plan")
+		}
+		if userSubscribe.Status == usersub.SubscribeStatusDeducted {
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.InvalidParams), "user subscribe status does not allow renewal")
+		}
+	}
+
+	if sub.Quota > 0 && req.UserSubscribeId == 0 {
+		count, err := s.deps.UserSubs.CountQuotaConsumingSubscriptions(ctx, u.Id, req.SubscribeId)
+		if err != nil {
+			log.Errorw("[PreCreateOrder] Database query error", logger.Field("error", err.Error()), logger.Field("user_id", u.Id), logger.Field("subscribe_id", req.SubscribeId))
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "count user subscribe error: %v", err.Error())
+		}
+		if count >= sub.Quota {
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.SubscribeQuotaLimit), "quota limit")
+		}
+	}
+
+	var discount float64 = 1
+	if sub.Discount != "" {
+		var dis []dto.BillingSubscribeDiscount
+		_ = json.Unmarshal([]byte(sub.Discount), &dis)
+		discount = getDiscount(dis, req.Quantity)
+	}
+	price := sub.UnitPrice * req.Quantity
+
+	amount := int64(float64(price) * discount)
+	discountAmount := price - amount
+	var couponAmount int64
+	if req.Coupon != "" {
+		couponInfo, err := s.deps.Coupons.FindOneByCode(ctx, req.Coupon)
+		if err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, errors.Wrapf(xerr.NewErrCode(xerr.CouponNotExist), "coupon not found")
+			}
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "find coupon error: %v", err.Error())
+		}
+		if err := ensureCouponEnabled(couponInfo); err != nil {
+			return nil, err
+		}
+		if couponInfo.Count > 0 && couponInfo.Count <= couponInfo.UsedCount {
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.CouponAlreadyUsed), "coupon used")
+		}
+		count, err := s.deps.Orders.CountUserCouponUsage(ctx, u.Id, req.Coupon)
+		if err != nil {
+			log.Errorw("[PreCreateOrder] Database query error", logger.Field("error", err.Error()), logger.Field("user_id", u.Id), logger.Field("coupon", req.Coupon))
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "find coupon error: %v", err.Error())
+		}
+
+		if couponInfo.UserLimit > 0 && count >= couponInfo.UserLimit {
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.CouponInsufficientUsage), "coupon limit exceeded")
+		}
+
+		couponSub := slicesx.StringToInt64Slice(couponInfo.Subscribe)
+		if len(couponSub) > 0 && !slices.Contains(couponSub, req.SubscribeId) {
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.CouponNotApplicable), "coupon not match")
+		}
+		couponAmount = calculateCoupon(amount, couponInfo)
+	}
+	amount -= couponAmount
+
+	var feeAmount int64
+	if req.Payment != 0 {
+		payment, err := s.deps.Payments.FindOne(ctx, req.Payment)
+		if err != nil {
+			log.Errorw("[PreCreateOrder] Database query error", logger.Field("error", err.Error()), logger.Field("payment", req.Payment))
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "find payment method error: %v", err.Error())
+		}
+		if err := ensurePaymentAvailable(payment); err != nil {
+			return nil, err
+		}
+		// Calculate the handling fee
+		if amount > 0 {
+			feeAmount = calculateFee(amount, payment)
+		}
+		amount += feeAmount
+	}
+
+	var deductionAmount int64
+	// The preview reads the authoritative wallet row: the context user is
+	// the middleware's cached identity snapshot (ADR-001 step 5).
+	var giftAvailable int64
+	if s.deps.Store != nil {
+		if w, err := s.deps.Store.Wallet().FindWallet(ctx, u.Id); err == nil && w != nil {
+			giftAvailable = w.GiftAmount
+		}
+	}
+	// Gift amount is deducted after payment fee, because the fee is based on the payable cash amount.
+	if giftAvailable > 0 && amount > 0 {
+		if giftAvailable >= amount {
+			deductionAmount = amount
+			amount = 0
+		} else {
+			deductionAmount = giftAvailable
+			amount -= giftAvailable
+		}
+	}
+
+	return &dto.PreOrderResponse{
+		Price:          price,
+		Amount:         amount,
+		Discount:       discountAmount,
+		GiftAmount:     deductionAmount,
+		Coupon:         req.Coupon,
+		CouponDiscount: couponAmount,
+		FeeAmount:      feeAmount,
+	}, nil
+}

@@ -1,0 +1,79 @@
+package plan
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+
+	"github.com/perfect-panel/server/internal/infra/mapping"
+	dto "github.com/perfect-panel/server/internal/module/subscription/contract"
+	"github.com/perfect-panel/server/internal/module/subscription/entity/subscribe"
+	"github.com/perfect-panel/server/pkg/logger"
+	"github.com/perfect-panel/server/pkg/slicesx"
+	"github.com/perfect-panel/server/pkg/xerr"
+	"github.com/pkg/errors"
+)
+
+type GetSubscribeListLogic struct {
+	logger.Logger
+	ctx  context.Context
+	deps Deps
+}
+
+// Get subscribe list
+func newGetSubscribeListLogic(ctx context.Context, deps Deps) *GetSubscribeListLogic {
+	return &GetSubscribeListLogic{
+		Logger: logger.WithContext(ctx),
+		ctx:    ctx,
+		deps:   deps,
+	}
+}
+
+func (l *GetSubscribeListLogic) GetSubscribeList(req *dto.GetSubscribeListRequest) (resp *dto.GetSubscribeListResponse, err error) {
+	total, list, err := l.deps.Plans.FilterList(l.ctx, &subscribe.FilterParams{
+		Page:     int(req.Page),
+		Size:     int(req.Size),
+		Language: req.Language,
+		Search:   req.Search,
+	})
+	if err != nil {
+		l.Logger.Error("[GetSubscribeListLogic] get subscribe list failed: ", logger.Field("error", err.Error()))
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "get subscribe list failed: %v", err.Error())
+	}
+	var (
+		subscribeIdList = make([]int64, 0, len(list))
+		resultList      = make([]dto.SubscribeItem, 0, len(list))
+	)
+	for _, item := range list {
+		subscribeIdList = append(subscribeIdList, item.Id)
+		var sub dto.SubscribeItem
+		mapping.DeepCopy(&sub, item)
+		if item.Discount != "" {
+			err = json.Unmarshal([]byte(item.Discount), &sub.Discount)
+			if err != nil {
+				l.Logger.Error("[GetSubscribeListLogic] JSON unmarshal failed: ", logger.Field("error", err.Error()), logger.Field("discount", item.Discount))
+			}
+		}
+		sub.Nodes = dto.StringInt64Slice(slicesx.StringToInt64Slice(item.Nodes))
+		sub.NodeTags = strings.Split(item.NodeTags, ",")
+		resultList = append(resultList, sub)
+	}
+
+	subscribeMaps, err := l.deps.UserSubs.QueryActiveSubscriptions(l.ctx, subscribeIdList...)
+	if err != nil {
+		l.Logger.Error("[GetSubscribeListLogic] get user subscribe failed: ", logger.Field("error", err.Error()))
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "get user subscribe failed: %v", err.Error())
+	}
+
+	for i, item := range resultList {
+		if sub, ok := subscribeMaps[item.Id]; ok {
+			resultList[i].Sold = sub
+		}
+	}
+
+	resp = &dto.GetSubscribeListResponse{
+		Total: total,
+		List:  resultList,
+	}
+	return
+}

@@ -40,6 +40,12 @@ func (s *metadataSupplier) Keys() []string {
 
 // Inject injects cross-cutting concerns from the ctx into the metadata.
 func Inject(ctx context.Context, p propagation.TextMapPropagator, metadata *metadata.MD) {
+	spanCtx := sdktrace.SpanContextFromContext(ctx)
+	if spanCtx.IsValid() {
+		spanCtx = spanCtx.WithTraceFlags(spanCtx.TraceFlags() & sdktrace.FlagsSampled)
+		ctx = sdktrace.ContextWithSpanContext(ctx, spanCtx)
+	}
+
 	p.Inject(ctx, &metadataSupplier{
 		metadata: metadata,
 	})

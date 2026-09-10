@@ -1,0 +1,84 @@
+package wallet
+
+import (
+	"context"
+
+	"github.com/perfect-panel/server/internal/infra/requestctx"
+	dto "github.com/perfect-panel/server/internal/module/billing/contract"
+	"github.com/perfect-panel/server/internal/module/identity/entity/user"
+	"github.com/perfect-panel/server/pkg/logger"
+	"github.com/perfect-panel/server/pkg/xerr"
+	"github.com/pkg/errors"
+)
+
+type QueryUserAffiliateListLogic struct {
+	logger.Logger
+	ctx  context.Context
+	deps Deps
+}
+
+// Query User Affiliate List
+func newQueryUserAffiliateListLogic(ctx context.Context, deps Deps) *QueryUserAffiliateListLogic {
+	return &QueryUserAffiliateListLogic{
+		Logger: logger.WithContext(ctx),
+		ctx:    ctx,
+		deps:   deps,
+	}
+}
+
+func (l *QueryUserAffiliateListLogic) QueryUserAffiliateList(req *dto.QueryUserAffiliateListRequest) (resp *dto.QueryUserAffiliateListResponse, err error) {
+	u, ok := l.ctx.Value(requestctx.CtxKeyUser).(*user.User)
+	if !ok {
+		logger.Error("current user is not found in context")
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.InvalidAccess), "Invalid Access")
+	}
+	data, total, err := l.deps.Affiliates.QueryAffiliateList(l.ctx, u.Id, req.Page, req.Size)
+	if err != nil {
+		l.Errorw("Query User Affiliate List failed: %v", logger.Field("error", err.Error()))
+		return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "Query User Affiliate List failed: %v", err.Error())
+	}
+
+	list := make([]dto.UserAffiliate, 0)
+	for _, item := range data {
+		list = append(list, dto.UserAffiliate{
+			Identifier:   GetAuthMethod(l, item).AuthIdentifier,
+			Avatar:       item.Avatar,
+			RegisteredAt: item.CreatedAt.UnixMilli(),
+			Enable:       *item.Enable,
+		})
+	}
+	return &dto.QueryUserAffiliateListResponse{
+		Total: total,
+		List:  list,
+	}, nil
+}
+
+func GetAuthMethod(l *QueryUserAffiliateListLogic, item *user.User) user.AuthMethods {
+	authMethod := user.AuthMethods{}
+	authMethods := item.AuthMethods
+	if len(authMethods) == 0 {
+		methods, errs := l.deps.AuthMethods.FindUserAuthMethods(l.ctx, item.Id)
+		if errs == nil {
+			for _, method := range methods {
+				authMethods = append(authMethods, *method)
+			}
+		}
+	}
+	if len(authMethods) > 0 {
+		for _, am := range authMethods {
+			if am.AuthType == "6" || am.AuthType == "7" {
+				authMethod = am
+				break
+			}
+		}
+		if authMethod.AuthIdentifier == "" {
+			authMethod = authMethods[0]
+		}
+
+		hideTextLength := len(authMethod.AuthIdentifier) / 3
+		if hideTextLength > 0 {
+			authMethod.AuthIdentifier = authMethod.AuthIdentifier[0:hideTextLength] + "***" + authMethod.AuthIdentifier[hideTextLength*2:]
+		}
+	}
+	return authMethod
+}
