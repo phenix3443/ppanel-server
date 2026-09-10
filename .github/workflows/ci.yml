@@ -94,6 +94,12 @@ jobs:
       # gain migrations. This keeps their numbering compatible; see the script for
       # what an incompatible pair does to an upgrading database.
       - name: Check migration lines
+        # 【本 fork 的 LTS 线是 main，不是 master】上游用 master 承载 LTS、
+        # feature 分支放 >=3000 的迁移。我们 fork 只有 main 一条线，
+        # origin/master 是切到 main 之前的陈旧遗留——拿它当基线会把全部
+        # 172 个迁移都判成「只存在于这条线」，整片报错。
+        env:
+          LTS_REF: origin/main
         run: |
-          git fetch --quiet origin master
+          git fetch --quiet origin main
           ./script/check-migration-lines.sh
