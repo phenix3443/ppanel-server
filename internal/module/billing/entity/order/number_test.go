@@ -7,8 +7,8 @@ import (
 
 func TestGenerateTradeNoFormat(t *testing.T) {
 	no := GenerateTradeNo()
-	if len(no) != 22 {
-		t.Fatalf("trade number %q has length %d, want fixed 22", no, len(no))
+	if len(no) != 14+tradeNoRandomDigits {
+		t.Fatalf("trade number %q has length %d, want fixed %d", no, len(no), 14+tradeNoRandomDigits)
 	}
 	for i, c := range no {
 		if c < '0' || c > '9' {
