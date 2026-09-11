@@ -43,6 +43,7 @@ type NodeRepo interface {
 	QueryServerSorts(ctx context.Context) ([]node.SortItem, error)
 	UpdateNodeSort(ctx context.Context, id int64, sort int64) error
 	UpdateServerSort(ctx context.Context, id int64, sort int64) error
+	UpdateServerTargetVersion(ctx context.Context, ids []int64, targetVersion string) error
 	QueryNodeTags(ctx context.Context) ([]string, error)
 	CountEnabledNodes(ctx context.Context) (int64, error)
 	CountServersByReportStatus(ctx context.Context, cutoff time.Time) (int64, int64, error)

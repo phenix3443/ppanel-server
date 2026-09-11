@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -27,11 +28,36 @@ type Cache struct {
 	nextFetch  time.Time
 	refreshing bool
 	fetch      func() (string, error)
+
+	listMu         sync.Mutex
+	list           []Release
+	listNextFetch  time.Time
+	listRefreshing bool
+	fetchList      func() ([]Release, error)
+}
+
+// Release 是版本下拉需要的最小信息。
+type Release struct {
+	Version     string `json:"version"`
+	Prerelease  bool   `json:"prerelease"`
+	PublishedAt string `json:"published_at"`
 }
 
 func New(ttl time.Duration) *Cache {
-	return &Cache{TTL: ttl, FailureBackoff: 10 * time.Minute, fetch: fetchLatest}
+	return &Cache{
+		TTL:            ttl,
+		FailureBackoff: 10 * time.Minute,
+		fetch:          fetchLatest,
+		fetchList:      fetchReleases,
+	}
 }
+
+// Default 是进程内共享的那一份。
+//
+// 【必须只有一份】节点列表渲染、版本下拉、下发时把 "latest" 解析成具体 tag
+// ——三条路径读的是同一个上游。各建各的 cache 就是把 GitHub 的 60 次/小时
+// 按路径数除一遍，而且三处看到的版本可能还不一致。
+var Default = New(time.Hour)
 
 // Latest 返回上游最新版本号，【立即返回，永不阻塞】。
 //
@@ -71,16 +97,80 @@ func (c *Cache) refresh() {
 	c.nextFetch = time.Now().Add(c.TTL)
 }
 
-func fetchLatest() (string, error) {
-	repo := os.Getenv("PPANEL_NODE_REPO")
-	if repo == "" {
-		repo = DefaultRepo
+// List 返回可选版本列表，语义和 Latest 一致：立即返回，永不阻塞，
+// 过期时后台刷新。列表为空表示还没拉到——前端此时应允许手输版本号。
+func (c *Cache) List() []Release {
+	c.listMu.Lock()
+	defer c.listMu.Unlock()
+
+	if time.Now().Before(c.listNextFetch) || c.listRefreshing {
+		return c.list
 	}
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest("GET",
-		"https://api.github.com/repos/"+repo+"/releases/latest", nil)
+	c.listRefreshing = true
+	go c.refreshList()
+	return c.list
+}
+
+func (c *Cache) refreshList() {
+	v, err := c.fetchList()
+
+	c.listMu.Lock()
+	defer c.listMu.Unlock()
+	c.listRefreshing = false
 	if err != nil {
-		return "", err
+		backoff := c.FailureBackoff
+		if backoff == 0 {
+			backoff = c.TTL
+		}
+		c.listNextFetch = time.Now().Add(backoff)
+		return
+	}
+	c.list = v
+	c.listNextFetch = time.Now().Add(c.TTL)
+}
+
+// releasesPerPage 取 30：够覆盖最近一年的发版，又不至于让下拉长到没法用。
+const releasesPerPage = 30
+
+func fetchReleases() ([]Release, error) {
+	resp, err := githubGet("/releases?per_page=" + strconv.Itoa(releasesPerPage))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var releases []struct {
+		TagName     string `json:"tag_name"`
+		Prerelease  bool   `json:"prerelease"`
+		Draft       bool   `json:"draft"`
+		PublishedAt string `json:"published_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return nil, err
+	}
+	out := make([]Release, 0, len(releases))
+	for _, r := range releases {
+		// 草稿没有对外的下载地址，节点拉不到它的二进制。
+		if r.Draft {
+			continue
+		}
+		out = append(out, Release{Version: r.TagName, Prerelease: r.Prerelease, PublishedAt: r.PublishedAt})
+	}
+	return out, nil
+}
+
+// Repo 返回当前配置的 ppanel-node 仓库。
+func Repo() string {
+	if repo := os.Getenv("PPANEL_NODE_REPO"); repo != "" {
+		return repo
+	}
+	return DefaultRepo
+}
+
+func githubGet(path string) (*http.Response, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("GET", "https://api.github.com/repos/"+Repo()+path, nil)
+	if err != nil {
+		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
@@ -88,12 +178,21 @@ func fetchLatest() (string, error) {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, &statusError{resp.Status}
+	}
+	return resp, nil
+}
+
+func fetchLatest() (string, error) {
+	resp, err := githubGet("/releases/latest")
+	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", &statusError{resp.Status}
-	}
 	var release struct {
 		TagName string `json:"tag_name"`
 	}
@@ -106,3 +205,35 @@ func fetchLatest() (string, error) {
 type statusError struct{ status string }
 
 func (e *statusError) Error() string { return "github returned " + e.status }
+
+// AutoLatest 是控制台里「跟随最新」这一档的存储值。
+const AutoLatest = "latest"
+
+// Resolve 把控制台设置的期望版本翻译成真正下发给节点的 tag。
+//
+// 【"latest" 绝不下发给节点】节点收到它就得自己去问 GitHub：升级时机变成
+// 「节点哪一刻去拉的」，既不可复现也不可控，而且每个节点都要有访问 GitHub
+// 的能力。由面板解析成具体 tag 再下发，节点那边永远只看到确定的版本号。
+//
+// 还没拉到上游版本时返回空串——空串的语义是「这一轮不干预」，比下发一个
+// 猜的版本号安全。
+func (c *Cache) Resolve(v string) string {
+	if v != AutoLatest {
+		return v
+	}
+	return c.Latest()
+}
+
+// ResolveFor 把节点自己的设置和全局默认收敛成真正下发给节点的 tag。
+//
+// 【空串和「不干预」是同一件事】节点侧的判据是「期望版本非空且与自身不同就切」，
+// 所以任何一环给不出确定版本号时都必须回落到空串——下发一个猜出来的版本号，
+// 线上节点就会去下载一个不存在的 release。
+//
+// 节点列表的展示和配置下发都走这里，避免「界面上说要升到 X、实际下发的是 Y」。
+func (c *Cache) ResolveFor(serverTarget, globalDefault string) string {
+	if serverTarget == "" {
+		serverTarget = globalDefault
+	}
+	return c.Resolve(serverTarget)
+}

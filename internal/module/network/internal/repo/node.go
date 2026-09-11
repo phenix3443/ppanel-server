@@ -413,6 +413,20 @@ func (m *nodeRepo) UpdateServerSort(ctx context.Context, id int64, sort int64) e
 	return m.UpdateServer(ctx, server)
 }
 
+// UpdateServerTargetVersion 只改 target_version 这一列。
+//
+// 【不能走 FindOneServer + UpdateServer】那是读-改-写：节点心跳同时也在写
+// version / last_reported_at / protocols，读到的整行发回去会把心跳刚写进去的
+// 值盖回旧的。批量设置时窗口更宽，撞上的概率更高。
+func (m *nodeRepo) UpdateServerTargetVersion(ctx context.Context, ids []int64, targetVersion string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return m.WithContext(ctx).Model(&node.Server{}).
+		Where("id IN ?", ids).
+		UpdateColumn("target_version", targetVersion).Error
+}
+
 func (m *nodeRepo) nodeListQuery(ctx context.Context, params *node.FilterNodeParams) *gorm.DB {
 	query := m.WithContext(ctx).Model(&node.Node{})
 	if params == nil {

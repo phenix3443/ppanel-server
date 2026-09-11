@@ -87,14 +87,16 @@ type MobileAuthenticateConfig struct {
 }
 
 type NodeConfig struct {
-	NodeSecret             string                         `json:"node_secret"`
-	NodePullInterval       int64                          `json:"node_pull_interval"`
-	NodePushInterval       int64                          `json:"node_push_interval"`
-	TrafficReportThreshold int64                          `json:"traffic_report_threshold"`
-	IPStrategy             string                         `json:"ip_strategy"`
-	DNS                    []PlatformNodeDNSSnapshot      `json:"dns"`
-	Block                  []string                       `json:"block"`
-	Outbound               []PlatformNodeOutboundSnapshot `json:"outbound"`
+	NodeSecret             string `json:"node_secret"`
+	NodePullInterval       int64  `json:"node_pull_interval"`
+	NodePushInterval       int64  `json:"node_push_interval"`
+	TrafficReportThreshold int64  `json:"traffic_report_threshold"`
+	IPStrategy             string `json:"ip_strategy"`
+	// DefaultTargetVersion 见 config.NodeConfig 的同名字段。
+	DefaultTargetVersion string                         `json:"default_target_version"`
+	DNS                  []PlatformNodeDNSSnapshot      `json:"dns"`
+	Block                []string                       `json:"block"`
+	Outbound             []PlatformNodeOutboundSnapshot `json:"outbound"`
 }
 
 type PlatformNodeDNSSnapshot struct {

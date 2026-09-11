@@ -3,6 +3,8 @@ package serverapi
 import (
 	"context"
 
+	"github.com/perfect-panel/server/internal/infra/nodeversion"
+
 	"github.com/perfect-panel/server/internal/infra/mapping"
 	dto "github.com/perfect-panel/server/internal/module/network/contract"
 	"github.com/perfect-panel/server/internal/module/network/entity/node"
@@ -97,6 +99,6 @@ func (l *QueryServerProtocolConfigLogic) QueryServerProtocolConfig(req *dto.Quer
 		Protocols:              protocols,
 		Total:                  int64(len(protocols)),
 		// 节点每次拉配置都会看到它；与自身版本不同就自升级。
-		TargetVersion: data.TargetVersion,
+		TargetVersion: nodeversion.Default.ResolveFor(data.TargetVersion, l.deps.Config().Node.DefaultTargetVersion),
 	}, nil
 }

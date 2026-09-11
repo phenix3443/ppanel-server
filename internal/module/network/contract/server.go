@@ -9,13 +9,35 @@ type CreateServerRequest struct {
 	Protocols []Protocol `json:"protocols"`
 }
 
-// SetServerTargetVersionRequest 设置某个节点的期望版本。
+// SetServerTargetVersionRequest 设置一批节点的期望版本。
 //
-// TargetVersion 空串表示不干预。**可以填比当前更旧的版本**——新版出问题时
-// 要能回退，回退和升级走同一条路。
+// TargetVersion 空串表示清掉这些节点的单独设置、回落到全局默认；"latest"
+// 表示跟随最新。**可以填比当前更旧的版本**——新版出问题时要能回退，回退和
+// 升级走同一条路。
+//
+// Ids 为空时退回用 Id，兼容只设置单个节点的老调用。
 type SetServerTargetVersionRequest struct {
-	Id            int64  `json:"id" validate:"required"`
-	TargetVersion string `json:"target_version"`
+	Id            int64   `json:"id,omitempty"`
+	Ids           []int64 `json:"ids,omitempty"`
+	TargetVersion string  `json:"target_version"`
+}
+
+// ServerNodeVersion 是版本下拉里的一项。
+type ServerNodeVersion struct {
+	Version     string `json:"version"`
+	Prerelease  bool   `json:"prerelease"`
+	PublishedAt string `json:"published_at"`
+}
+
+// ListNodeVersionsResponse 供控制台渲染版本下拉。
+//
+// List 可能为空（还没拉到上游，或 GitHub 不可达），此时前端应退化成让管理员
+// 手输版本号，而不是把升级入口禁掉。
+type ListNodeVersionsResponse struct {
+	Repo    string              `json:"repo"`
+	Latest  string              `json:"latest"`
+	Default string              `json:"default_target_version"`
+	List    []ServerNodeVersion `json:"list"`
 }
 
 type DeleteServerRequest struct {
@@ -269,8 +291,13 @@ type Server struct {
 	Protocols      []Protocol   `json:"protocols"`
 	LastReportedAt int64        `json:"last_reported_at"`
 	Status         ServerStatus `json:"status"`
-	CreatedAt      int64        `json:"created_at"`
-	UpdatedAt      int64        `json:"updated_at"`
+	// TargetVersion 是这个节点单独设置的期望版本，空串表示跟随全局默认。
+	TargetVersion string `json:"target_version"`
+	// EffectiveTargetVersion 是节点设置、全局默认、"跟随最新" 收敛之后真正会
+	// 下发给节点的版本；空串表示不干预。界面显示的和实际下发的必须是同一个值。
+	EffectiveTargetVersion string `json:"effective_target_version"`
+	CreatedAt              int64  `json:"created_at"`
+	UpdatedAt              int64  `json:"updated_at"`
 }
 
 type ServerBasic struct {
