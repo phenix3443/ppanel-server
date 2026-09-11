@@ -7361,7 +7361,7 @@
         },
         "/v1/auth/login/device": {
             "post": {
-                "description": "When device security is enabled, requests and response data use a signed data/time/sign envelope. Each request needs a fresh nonce; see docs/device-authentication.md. The User-Agent is read from the HTTP header.",
+                "description": "When device security is enabled, requests and response data use a signed data/time/sign envelope. Each request needs a fresh nonce; see docs/design/device-authentication.md. The User-Agent is read from the HTTP header.",
                 "consumes": [
                     "application/json"
                 ],
