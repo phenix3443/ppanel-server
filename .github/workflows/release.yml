@@ -3,6 +3,11 @@ on:
   push:
     tags:
       - 'v*'
+  # 【必须保留手动入口】Auto Tag Release 用 GITHUB_TOKEN 推的 tag 不会触发
+  # 上面那个 push 事件（GitHub 刻意如此，防止 workflow 互相触发成环），所以
+  # 它会显式 dispatch 这个 workflow。用 --ref <tag> 调起时 github.ref_name
+  # 就是那个 tag，下面的 git describe / ref_name 全都照常工作。
+  workflow_dispatch:
 
 permissions:
   contents: write

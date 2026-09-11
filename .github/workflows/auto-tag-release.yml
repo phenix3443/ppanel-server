@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: write
+  # dispatch Release 需要；见下面 "Trigger release build" 那一步的注释。
+  actions: write
 
 jobs:
   tag-release:
@@ -66,6 +68,17 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag "${TAG_NAME}" "${{ github.event.pull_request.merge_commit_sha }}"
           git push origin "${TAG_NAME}"
+
+      # 【推 tag 不会触发 Release，必须显式调起】用 GITHUB_TOKEN 推的 ref 不
+      # 产生 workflow 事件，这是 GitHub 的防环机制。踩过：v1.0.9/10/11 三个 tag
+      # 都建出来了却一个镜像都没发，直到部署时才发现，只能手工删 tag 再用个人
+      # 凭据重推一遍。
+      - name: Trigger release build
+        if: steps.existing.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.next.outputs.tag }}
+        run: gh workflow run release.yml --repo "${{ github.repository }}" --ref "${TAG_NAME}"
 
       - name: Report result
         run: |
