@@ -22,37 +22,53 @@ type Cache struct {
 	// 没有它的话，GitHub 一挂，每次刷新节点列表都要多等一个 HTTP 超时。
 	FailureBackoff time.Duration
 
-	mu        sync.Mutex
-	value     string
-	nextFetch time.Time
-	fetch     func() (string, error)
+	mu         sync.Mutex
+	value      string
+	nextFetch  time.Time
+	refreshing bool
+	fetch      func() (string, error)
 }
 
 func New(ttl time.Duration) *Cache {
 	return &Cache{TTL: ttl, FailureBackoff: 10 * time.Minute, fetch: fetchLatest}
 }
 
-// Latest 返回上游最新版本号；取不到时返回上次的好值，从未成功过则返回空串。
-// 不返回 error：调用方是页面渲染路径，版本查不到不该让页面失败。
+// Latest 返回上游最新版本号，【立即返回，永不阻塞】。
+//
+// 调用方是节点列表的渲染路径。过期时只在后台起一次刷新，本次仍返回旧值
+// （首次调用返回空串）——让管理员多等一个 HTTP 往返、甚至并发全堵在锁上，
+// 换一个「版本号新鲜一点」不值得。
+//
+// 不返回 error：版本查不到不该让页面失败。
 func (c *Cache) Latest() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if time.Now().Before(c.nextFetch) {
+	if time.Now().Before(c.nextFetch) || c.refreshing {
 		return c.value
 	}
+	// 先把下次允许刷新的时间推后，避免刷新失败后每次调用都再起一个 goroutine。
+	c.refreshing = true
+	go c.refresh()
+	return c.value
+}
+
+func (c *Cache) refresh() {
 	v, err := c.fetch()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.refreshing = false
 	if err != nil {
 		backoff := c.FailureBackoff
 		if backoff == 0 {
 			backoff = c.TTL
 		}
 		c.nextFetch = time.Now().Add(backoff)
-		return c.value // 沿用上次的好值
+		return // 沿用上次的好值
 	}
 	c.value = v
 	c.nextFetch = time.Now().Add(c.TTL)
-	return v
 }
 
 func fetchLatest() (string, error) {
