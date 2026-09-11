@@ -100,6 +100,11 @@ jobs:
         # 172 个迁移都判成「只存在于这条线」，整片报错。
         env:
           LTS_REF: origin/main
+          # 本 fork 只有 main 一条线（master 落后 394 个提交、无迁移，已废弃），
+          # 上游那套「LTS 线 + feature 线」的分段规则在这里自相矛盾：新迁移在
+          # PR 上被要求 >= 3000，合进 main 后又因「LTS 线不能有 >= 3000」失败。
+          # 单线模式只保留「LTS 的迁移必须都在」这条有意义的检查。
+          SINGLE_LINE: "1"
         run: |
           git fetch --quiet origin main
           ./script/check-migration-lines.sh

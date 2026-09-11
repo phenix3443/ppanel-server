@@ -13,11 +13,19 @@
 #
 # Hence the reserved bands: LTS fixes stay below FEATURE_BAND_START, feature work
 # starts at it.
+#
+# 【单线仓库要关掉分段检查】上面这套只在「LTS 线和 feature 线是两条长期分支」
+# 时成立。本 fork 只有 main 一条线（master 落后 394 个提交、没有迁移，是废弃
+# 分支），此时两条分段规则会互相矛盾：新迁移在 PR 上被要求 >= 3000，合进
+# main 之后又因为「LTS 线不能有 >= 3000」而失败，怎么编号都过不去。
+# 所以单线仓库设 SINGLE_LINE=1，只保留「LTS 的迁移必须都在」这条有意义的检查。
 
 set -euo pipefail
 
 readonly LTS_REF="${LTS_REF:-origin/master}"
 readonly FEATURE_BAND_START=3000
+# 单线仓库（没有独立的 feature 分支）设为 1，跳过分段检查。
+readonly SINGLE_LINE="${SINGLE_LINE:-0}"
 readonly MIGRATION_DIR=internal/app/migration/schema/database
 readonly LEGACY_MIGRATION_DIR=initialize/migrate/database
 
@@ -69,6 +77,7 @@ if [ -n "$missing" ]; then
 fi
 
 while read -r number; do
+  [ "$SINGLE_LINE" = "1" ] && break
   [ -n "$number" ] || continue
   if [ "$((10#$number))" -ge "$FEATURE_BAND_START" ]; then
     echo "Migration $number is on $LTS_REF but sits in the feature band (>= $FEATURE_BAND_START)."
@@ -80,6 +89,7 @@ done <<<"$lts_numbers"
 
 feature_only="$(comm -13 <(echo "$lts_numbers") <(echo "$head_numbers"))"
 while read -r number; do
+  [ "$SINGLE_LINE" = "1" ] && break
   [ -n "$number" ] || continue
   if [ "$((10#$number))" -lt "$FEATURE_BAND_START" ]; then
     echo "Migration $number exists only on this line but is numbered below $FEATURE_BAND_START."
