@@ -41,7 +41,6 @@ func (l *GetNodeConfigLogic) GetNodeConfig() (*dto.NodeConfig, error) {
 		NodePushInterval:       dbConfig.NodePushInterval,
 		IPStrategy:             dbConfig.IPStrategy,
 		TrafficReportThreshold: dbConfig.TrafficReportThreshold,
-		DefaultTargetVersion:   dbConfig.DefaultTargetVersion,
 	}
 
 	if dbConfig.DNS != "" {

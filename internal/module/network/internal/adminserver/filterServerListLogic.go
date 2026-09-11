@@ -46,7 +46,6 @@ func (l *FilterServerListLogic) FilterServerList(req *dto.FilterServerListReques
 
 	// 查一次给整页共用；缓存命中时不产生网络请求。
 	latest := latestNodeVersion.Latest()
-	globalTarget := l.deps.Config().Node.DefaultTargetVersion
 
 	for _, datum := range data {
 		var server dto.Server
@@ -61,7 +60,7 @@ func (l *FilterServerListLogic) FilterServerList(req *dto.FilterServerListReques
 		}
 		mapping.DeepCopy(&protocols, dst)
 		server.Protocols = protocols
-		server.EffectiveTargetVersion = latestNodeVersion.ResolveFor(datum.TargetVersion, globalTarget)
+		server.EffectiveTargetVersion = latestNodeVersion.Resolve(datum.TargetVersion)
 
 		nodeStatus, err := nodeStore.StatusCache(l.ctx, datum.Id)
 		if err != nil {

@@ -13923,9 +13923,6 @@
         "dto.ListNodeVersionsResponse": {
             "type": "object",
             "properties": {
-                "default_target_version": {
-                    "type": "string"
-                },
                 "latest": {
                     "type": "string"
                 },
@@ -14139,10 +14136,6 @@
                     "items": {
                         "type": "string"
                     }
-                },
-                "default_target_version": {
-                    "description": "DefaultTargetVersion 见 config.NodeConfig 的同名字段。",
-                    "type": "string"
                 },
                 "dns": {
                     "type": "array",
@@ -16043,7 +16036,7 @@
                     "type": "integer"
                 },
                 "effective_target_version": {
-                    "description": "EffectiveTargetVersion 是节点设置、全局默认、\"跟随最新\" 收敛之后真正会\n下发给节点的版本；空串表示不干预。界面显示的和实际下发的必须是同一个值。",
+                    "description": "EffectiveTargetVersion 是 latest 解析成具体 tag 之后、真正会下发的版本。\n界面显示的和实际下发的必须是同一个值，所以由服务端算。",
                     "type": "string"
                 },
                 "id": {
@@ -16068,7 +16061,7 @@
                     "$ref": "#/definitions/dto.ServerStatus"
                 },
                 "target_version": {
-                    "description": "TargetVersion 是这个节点单独设置的期望版本，空串表示跟随全局默认。",
+                    "description": "TargetVersion 是这个节点的版本策略：空串=不自动升级，latest=跟随最新，\n或一个具体 tag。每个节点自己说了算，没有全局层可以回落。",
                     "type": "string"
                 },
                 "updated_at": {

@@ -154,18 +154,14 @@ type SiteConfig struct {
 }
 
 type NodeConfig struct {
-	NodeSecret             string `yaml:"NodeSecret" default:""`
-	NodePullInterval       int64  `yaml:"NodePullInterval" default:"60"`
-	NodePushInterval       int64  `yaml:"NodePushInterval" default:"60"`
-	TrafficReportThreshold int64  `yaml:"TrafficReportThreshold" default:"0"`
-	IPStrategy             string `yaml:"IPStrategy" default:""`
-	// DefaultTargetVersion 是节点没有单独指定期望版本时的兜底。
-	// 空串 = 不干预（默认，升级只能手动逐节点触发）；"latest" = 跟随最新；
-	// 也可以填死一个 tag 把整批节点钉在某个版本上。
-	DefaultTargetVersion string         `yaml:"DefaultTargetVersion" default:""`
-	DNS                  []NodeDNS      `yaml:"DNS"`
-	Block                []string       `yaml:"Block" `
-	Outbound             []NodeOutbound `yaml:"Outbound"`
+	NodeSecret             string         `yaml:"NodeSecret" default:""`
+	NodePullInterval       int64          `yaml:"NodePullInterval" default:"60"`
+	NodePushInterval       int64          `yaml:"NodePushInterval" default:"60"`
+	TrafficReportThreshold int64          `yaml:"TrafficReportThreshold" default:"0"`
+	IPStrategy             string         `yaml:"IPStrategy" default:""`
+	DNS                    []NodeDNS      `yaml:"DNS"`
+	Block                  []string       `yaml:"Block" `
+	Outbound               []NodeOutbound `yaml:"Outbound"`
 }
 
 func (n *NodeConfig) Marshal() ([]byte, error) {
@@ -358,7 +354,6 @@ type NodeDBConfig struct {
 	NodePushInterval       int64
 	TrafficReportThreshold int64
 	IPStrategy             string
-	DefaultTargetVersion   string
 	DNS                    string
 	Block                  string
 	Outbound               string

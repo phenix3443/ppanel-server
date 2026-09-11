@@ -9,11 +9,12 @@ type CreateServerRequest struct {
 	Protocols []Protocol `json:"protocols"`
 }
 
-// SetServerTargetVersionRequest 设置一批节点的期望版本。
+// SetServerTargetVersionRequest 设置一批节点的版本策略。
 //
-// TargetVersion 空串表示清掉这些节点的单独设置、回落到全局默认；"latest"
-// 表示跟随最新。**可以填比当前更旧的版本**——新版出问题时要能回退，回退和
-// 升级走同一条路。
+// TargetVersion 三种取值，没有第四种，也没有继承：空串=不自动升级，
+// "latest"=跟随最新，具体 tag=钉死在这个版本。
+// **可以填比当前更旧的版本**——新版出问题时要能回退，回退和升级走同一条路，
+// 只是不能降到 nodeversion.MinSelfManageable 以下（那样节点会失联）。
 //
 // Ids 为空时退回用 Id，兼容只设置单个节点的老调用。
 type SetServerTargetVersionRequest struct {
@@ -38,10 +39,10 @@ type ServerNodeVersion struct {
 // List 可能为空（还没拉到上游，或 GitHub 不可达），此时前端应退化成让管理员
 // 手输版本号，而不是把升级入口禁掉。
 type ListNodeVersionsResponse struct {
-	Repo    string `json:"repo"`
-	Latest  string `json:"latest"`
-	Default string `json:"default_target_version"`
+	Repo   string `json:"repo"`
+	Latest string `json:"latest"`
 	// MinSelfManageable 是能下发的最低版本，比它旧的下发过去节点会失联。
+	//
 	MinSelfManageable string              `json:"min_self_manageable"`
 	List              []ServerNodeVersion `json:"list"`
 }
@@ -297,10 +298,11 @@ type Server struct {
 	Protocols      []Protocol   `json:"protocols"`
 	LastReportedAt int64        `json:"last_reported_at"`
 	Status         ServerStatus `json:"status"`
-	// TargetVersion 是这个节点单独设置的期望版本，空串表示跟随全局默认。
+	// TargetVersion 是这个节点的版本策略：空串=不自动升级，latest=跟随最新，
+	// 或一个具体 tag。每个节点自己说了算，没有全局层可以回落。
 	TargetVersion string `json:"target_version"`
-	// EffectiveTargetVersion 是节点设置、全局默认、"跟随最新" 收敛之后真正会
-	// 下发给节点的版本；空串表示不干预。界面显示的和实际下发的必须是同一个值。
+	// EffectiveTargetVersion 是 latest 解析成具体 tag 之后、真正会下发的版本。
+	// 界面显示的和实际下发的必须是同一个值，所以由服务端算。
 	EffectiveTargetVersion string `json:"effective_target_version"`
 	CreatedAt              int64  `json:"created_at"`
 	UpdatedAt              int64  `json:"updated_at"`
