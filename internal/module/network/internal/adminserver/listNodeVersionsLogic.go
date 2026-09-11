@@ -32,15 +32,17 @@ func (l *ListNodeVersionsLogic) ListNodeVersions() (*dto.ListNodeVersionsRespons
 	list := make([]dto.ServerNodeVersion, 0, len(releases))
 	for _, r := range releases {
 		list = append(list, dto.ServerNodeVersion{
-			Version:     r.Version,
-			Prerelease:  r.Prerelease,
-			PublishedAt: r.PublishedAt,
+			Version:        r.Version,
+			Prerelease:     r.Prerelease,
+			SelfManageable: nodeversion.SelfManageable(r.Version),
+			PublishedAt:    r.PublishedAt,
 		})
 	}
 	return &dto.ListNodeVersionsResponse{
-		Repo:    nodeversion.Repo(),
-		Latest:  nodeversion.Default.Latest(),
-		Default: l.deps.Config().Node.DefaultTargetVersion,
-		List:    list,
+		Repo:              nodeversion.Repo(),
+		Latest:            nodeversion.Default.Latest(),
+		Default:           l.deps.Config().Node.DefaultTargetVersion,
+		MinSelfManageable: nodeversion.MinSelfManageable,
+		List:              list,
 	}, nil
 }
