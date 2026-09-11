@@ -61,11 +61,22 @@ func bindServerStatusRequest(ctx *app.RequestContext, req *dto.ServerPushStatusR
 	if err := ctx.BindProtobuf(&message); err != nil {
 		return err
 	}
+	copyStatusFromProtobuf(&message, req)
+	return nil
+}
+
+// copyStatusFromProtobuf 单独抽出来是为了能测。
+//
+// 【这里漏字段是静默的】给 proto 和 DTO 都加了字段还不够，中间不拷贝的话
+// 数据就在这一层被丢掉，接口照常 200、日志一行没有。2026-09-11 实际踩到：
+// 节点确实升到了 v1.1.15，面板却一直显示「未上报」。
+func copyStatusFromProtobuf(message *serverv1.PushServerStatusRequest, req *dto.ServerPushStatusRequest) {
 	req.Cpu = message.Cpu
 	req.Mem = message.Mem
 	req.Disk = message.Disk
 	req.UpdatedAt = message.UpdatedAt
-	return nil
+	req.Version = message.Version
+	req.LatestVersion = message.LatestVersion
 }
 
 func serverConfigResponseToProtobuf(response *dto.GetServerConfigResponse) (*serverv1.GetServerConfigResponse, error) {
