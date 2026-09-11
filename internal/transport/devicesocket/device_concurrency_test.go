@@ -93,7 +93,11 @@ func TestConcurrentHeartbeatAndPushWrites(t *testing.T) {
 	close(stop)
 	wg.Wait()
 
-	deadline := time.Now().Add(2 * time.Second)
+	// 【这里等的是「收够 800 条」，不是连接状态，放宽是安全的】
+	// 共享 CI runner 上 2 秒收不完 4×200 条：Nightly 见过耗时 2.11s 后
+	// 报 "received N messages, want at least 800"。正常情况下这个循环
+	// 毫秒级就退出，放宽只延长失败路径的等待。
+	deadline := time.Now().Add(30 * time.Second)
 	for received.Load() < pushWorkers*pushesPerWorker && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
