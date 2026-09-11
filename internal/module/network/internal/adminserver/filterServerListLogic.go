@@ -46,6 +46,7 @@ func (l *FilterServerListLogic) FilterServerList(req *dto.FilterServerListReques
 
 	// 查一次给整页共用；缓存命中时不产生网络请求。
 	latest := latestNodeVersion.Latest()
+	globalTarget := l.deps.Config().Node.DefaultTargetVersion
 
 	for _, datum := range data {
 		var server dto.Server
@@ -60,6 +61,7 @@ func (l *FilterServerListLogic) FilterServerList(req *dto.FilterServerListReques
 		}
 		mapping.DeepCopy(&protocols, dst)
 		server.Protocols = protocols
+		server.EffectiveTargetVersion = latestNodeVersion.ResolveFor(datum.TargetVersion, globalTarget)
 
 		nodeStatus, err := nodeStore.StatusCache(l.ctx, datum.Id)
 		if err != nil {
@@ -175,6 +177,5 @@ func (l *FilterServerListLogic) handlerServerStaus(last *time.Time) string {
 
 }
 
-// 上游最新版本缓存 1 小时。发版频率远低于此，而这个值在每次打开节点列表时
-// 都会被读到——不缓存会很快打满 GitHub 未认证 API 的 60 次/小时。
-var latestNodeVersion = nodeversion.New(time.Hour)
+// 用进程内共享的那一份，不要在这里再建一个：见 nodeversion.Default 的注释。
+var latestNodeVersion = nodeversion.Default

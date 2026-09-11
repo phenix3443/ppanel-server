@@ -66,6 +66,7 @@ func registerAdminServerRoutes(router *server.Hertz, deps Dependencies) {
 	group.POST("/node/sort", adminServer.ResetSortWithNodeHandler(deps.Network))
 	group.POST("/node/status/toggle", adminServer.ToggleNodeStatusHandler(deps.Network))
 	group.GET("/node/tags", adminServer.QueryNodeTagHandler(deps.Network))
+	group.GET("/node/versions", adminServer.ListNodeVersionsHandler(deps.Network))
 	group.GET("/node_config", adminServer.GetServerNodeConfigHandler(deps.Network))
 	group.POST("/node_config/update", adminServer.UpdateServerNodeConfigHandler(deps.Network))
 	group.POST("/node/update", adminServer.UpdateNodeHandler(deps.Network))

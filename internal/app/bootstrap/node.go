@@ -27,6 +27,7 @@ func Node(ctx *Dependencies) {
 		NodePushInterval:       nodeConfig.NodePushInterval,
 		IPStrategy:             nodeConfig.IPStrategy,
 		TrafficReportThreshold: nodeConfig.TrafficReportThreshold,
+		DefaultTargetVersion:   nodeConfig.DefaultTargetVersion,
 	}
 	if nodeConfig.DNS != "" {
 		var dns []config.NodeDNS

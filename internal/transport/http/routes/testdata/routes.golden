@@ -42,6 +42,7 @@ GET /v1/admin/withdrawal/list github.com/perfect-panel/server/internal/module/bi
 GET /v1/admin/server/list github.com/perfect-panel/server/internal/module/network/transport/http/admin/server.FilterServerListHandler
 GET /v1/admin/server/node/list github.com/perfect-panel/server/internal/module/network/transport/http/admin/server.FilterNodeListHandler
 GET /v1/admin/server/node/tags github.com/perfect-panel/server/internal/module/network/transport/http/admin/server.QueryNodeTagHandler
+GET /v1/admin/server/node/versions github.com/perfect-panel/server/internal/module/network/transport/http/admin/server.ListNodeVersionsHandler
 GET /v1/admin/server/node_config github.com/perfect-panel/server/internal/module/network/transport/http/admin/server.GetServerNodeConfigHandler
 GET /v1/admin/server/protocols github.com/perfect-panel/server/internal/module/network/transport/http/admin/server.GetServerProtocolsHandler
 GET /v1/admin/subscribe/details github.com/perfect-panel/server/internal/module/subscription/transport/http/admin/subscribe.GetSubscribeDetailsHandler

@@ -3935,6 +3935,42 @@
                 }
             }
         },
+        "/v1/admin/server/node/versions": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "List the node versions that can be pushed to servers",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/result.ResponseSuccessBean"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.ListNodeVersionsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/v1/admin/server/node_config": {
             "get": {
                 "security": [
@@ -13884,6 +13920,26 @@
                 }
             }
         },
+        "dto.ListNodeVersionsResponse": {
+            "type": "object",
+            "properties": {
+                "default_target_version": {
+                    "type": "string"
+                },
+                "latest": {
+                    "type": "string"
+                },
+                "list": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.ServerNodeVersion"
+                    }
+                },
+                "repo": {
+                    "type": "string"
+                }
+            }
+        },
         "dto.LogResponse": {
             "type": "object",
             "properties": {
@@ -14079,6 +14135,10 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "default_target_version": {
+                    "description": "DefaultTargetVersion 见 config.NodeConfig 的同名字段。",
+                    "type": "string"
                 },
                 "dns": {
                     "type": "array",
@@ -15978,6 +16038,10 @@
                 "created_at": {
                     "type": "integer"
                 },
+                "effective_target_version": {
+                    "description": "EffectiveTargetVersion 是节点设置、全局默认、\"跟随最新\" 收敛之后真正会\n下发给节点的版本；空串表示不干预。界面显示的和实际下发的必须是同一个值。",
+                    "type": "string"
+                },
                 "id": {
                     "type": "integer"
                 },
@@ -15998,6 +16062,10 @@
                 },
                 "status": {
                     "$ref": "#/definitions/dto.ServerStatus"
+                },
+                "target_version": {
+                    "description": "TargetVersion 是这个节点单独设置的期望版本，空串表示跟随全局默认。",
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "integer"
@@ -16076,6 +16144,20 @@
                     "items": {
                         "$ref": "#/definitions/dto.NodeOutbound"
                     }
+                }
+            }
+        },
+        "dto.ServerNodeVersion": {
+            "type": "object",
+            "properties": {
+                "prerelease": {
+                    "type": "boolean"
+                },
+                "published_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
                 }
             }
         },
@@ -16334,12 +16416,15 @@
         },
         "dto.SetServerTargetVersionRequest": {
             "type": "object",
-            "required": [
-                "id"
-            ],
             "properties": {
                 "id": {
                     "type": "integer"
+                },
+                "ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
                 },
                 "target_version": {
                     "type": "string"
