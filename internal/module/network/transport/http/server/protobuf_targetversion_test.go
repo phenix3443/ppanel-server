@@ -3,6 +3,7 @@ package server
 import (
 	"testing"
 
+	serverv1 "github.com/perfect-panel/server/api/server/v1"
 	dto "github.com/perfect-panel/server/internal/module/network/contract"
 )
 
@@ -23,5 +24,27 @@ func TestQueryServerProtocolConfigCarriesTargetVersionOverProtobuf(t *testing.T)
 	}
 	if got := resp.GetData().GetTargetVersion(); got != "v1.1.14" {
 		t.Fatalf("protobuf 里的 target_version = %q, want v1.1.14", got)
+	}
+}
+
+// 节点走 protobuf 上报状态（UseProtobuf 由服务端响应的 content-type 决定，
+// 而 /v2/server 返回 protobuf）。给 proto 和 DTO 都加了字段还不够——
+// 中间这个绑定函数不拷贝的话，版本信息在这里被静默丢弃，面板永远显示「未上报」。
+// 这是本次实测才暴露的：节点确实装上了 v1.1.15，面板却还是 version=None。
+func TestBindServerStatusCarriesVersionFromProtobuf(t *testing.T) {
+	var req dto.ServerPushStatusRequest
+	msg := &serverv1.PushServerStatusRequest{
+		Cpu: 1, Mem: 2, Disk: 3, UpdatedAt: 4,
+		Version: "v1.1.15", LatestVersion: "v1.1.16",
+	}
+	copyStatusFromProtobuf(msg, &req)
+	if req.Version != "v1.1.15" {
+		t.Errorf("Version = %q, want v1.1.15", req.Version)
+	}
+	if req.LatestVersion != "v1.1.16" {
+		t.Errorf("LatestVersion = %q, want v1.1.16", req.LatestVersion)
+	}
+	if req.Cpu != 1 || req.Mem != 2 || req.Disk != 3 || req.UpdatedAt != 4 {
+		t.Errorf("原有字段被改坏了: %+v", req)
 	}
 }
