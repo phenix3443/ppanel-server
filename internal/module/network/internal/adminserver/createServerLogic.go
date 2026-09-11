@@ -2,6 +2,7 @@ package adminserver
 
 import (
 	"context"
+	"github.com/perfect-panel/server/internal/infra/nodeversion"
 
 	"github.com/perfect-panel/server/internal/infra/mapping"
 	dto "github.com/perfect-panel/server/internal/module/network/contract"
@@ -35,6 +36,10 @@ func (l *CreateServerLogic) CreateServer(req *dto.CreateServerRequest) error {
 		Address:   req.Address,
 		Sort:      req.Sort,
 		Protocols: "",
+		// 【新节点默认跟随最新】这是「默认」唯一存在的地方——创建时写死一个值，
+		// 而不是运行时再去查一层全局配置。没有它的话，新加的节点会永远停在
+		// 安装时那个版本，而且界面上看不出有什么不对。
+		TargetVersion: nodeversion.AutoLatest,
 	}
 	protocols := make([]node.Protocol, 0)
 	for _, item := range req.Protocols {

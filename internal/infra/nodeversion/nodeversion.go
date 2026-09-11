@@ -209,7 +209,12 @@ func (e *statusError) Error() string { return "github returned " + e.status }
 // AutoLatest 是控制台里「跟随最新」这一档的存储值。
 const AutoLatest = "latest"
 
-// Resolve 把控制台设置的期望版本翻译成真正下发给节点的 tag。
+// Resolve 把节点的版本策略翻译成真正下发给它的 tag。
+//
+// 三种取值，没有第四种，也没有继承：
+//   - ""         不自动升级，节点保持现状
+//   - AutoLatest 跟随最新，这里解析成具体 tag
+//   - 具体 tag   钉死在这个版本
 //
 // 【"latest" 绝不下发给节点】节点收到它就得自己去问 GitHub：升级时机变成
 // 「节点哪一刻去拉的」，既不可复现也不可控，而且每个节点都要有访问 GitHub
@@ -222,18 +227,4 @@ func (c *Cache) Resolve(v string) string {
 		return v
 	}
 	return c.Latest()
-}
-
-// ResolveFor 把节点自己的设置和全局默认收敛成真正下发给节点的 tag。
-//
-// 【空串和「不干预」是同一件事】节点侧的判据是「期望版本非空且与自身不同就切」，
-// 所以任何一环给不出确定版本号时都必须回落到空串——下发一个猜出来的版本号，
-// 线上节点就会去下载一个不存在的 release。
-//
-// 节点列表的展示和配置下发都走这里，避免「界面上说要升到 X、实际下发的是 Y」。
-func (c *Cache) ResolveFor(serverTarget, globalDefault string) string {
-	if serverTarget == "" {
-		serverTarget = globalDefault
-	}
-	return c.Resolve(serverTarget)
 }

@@ -99,6 +99,6 @@ func (l *QueryServerProtocolConfigLogic) QueryServerProtocolConfig(req *dto.Quer
 		Protocols:              protocols,
 		Total:                  int64(len(protocols)),
 		// 节点每次拉配置都会看到它；与自身版本不同就自升级。
-		TargetVersion: nodeversion.Default.ResolveFor(data.TargetVersion, l.deps.Config().Node.DefaultTargetVersion),
+		TargetVersion: nodeversion.Default.Resolve(data.TargetVersion),
 	}, nil
 }

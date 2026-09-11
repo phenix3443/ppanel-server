@@ -41,7 +41,6 @@ func (l *ListNodeVersionsLogic) ListNodeVersions() (*dto.ListNodeVersionsRespons
 	return &dto.ListNodeVersionsResponse{
 		Repo:              nodeversion.Repo(),
 		Latest:            nodeversion.Default.Latest(),
-		Default:           l.deps.Config().Node.DefaultTargetVersion,
 		MinSelfManageable: nodeversion.MinSelfManageable,
 		List:              list,
 	}, nil
