@@ -160,3 +160,46 @@ func (l *EPayConfig) Unmarshal(data []byte) error {
 	aux := (*Alias)(l)
 	return json.Unmarshal(data, &aux)
 }
+
+// WaffoConfig configures the Waffo Pancake merchant-of-record gateway.
+// WebhookID is not administrator input: it records the endpoint PPanel
+// registered on the store so a later save updates that endpoint instead of
+// adding a second one.
+type WaffoConfig struct {
+	MerchantID  string `json:"merchant_id"`
+	PrivateKey  string `json:"private_key"`
+	StoreID     string `json:"store_id"`
+	ProductID   string `json:"product_id"`
+	TaxCategory string `json:"tax_category"`
+	TestMode    bool   `json:"test_mode"`
+	WebhookID   string `json:"webhook_id,omitempty"`
+}
+
+func (l *WaffoConfig) Marshal() ([]byte, error) {
+	type Alias WaffoConfig
+	return json.Marshal(&struct {
+		*Alias
+	}{
+		Alias: (*Alias)(l),
+	})
+}
+
+func (l *WaffoConfig) Unmarshal(data []byte) error {
+	// The admin form posts every field as a string, so test_mode arrives as
+	// "true"/"false" rather than a JSON boolean.
+	var rawMap map[string]interface{}
+	if err := json.Unmarshal(data, &rawMap); err != nil {
+		return err
+	}
+	if value, ok := rawMap["test_mode"]; ok {
+		if text, isString := value.(string); isString {
+			rawMap["test_mode"] = text == "true" || text == "1"
+		}
+	}
+	converted, err := json.Marshal(rawMap)
+	if err != nil {
+		return err
+	}
+	type Alias WaffoConfig
+	return json.Unmarshal(converted, (*Alias)(l))
+}
