@@ -136,6 +136,13 @@ func TestKickDeliversNotificationThenCloses(t *testing.T) {
 	if string(msg) != `{"method":"kicked"}` {
 		t.Errorf("kick notification = %q, want %q", msg, `{"method":"kicked"}`)
 	}
+	// 【必须重设读 deadline】上一行 SetReadDeadline 设的是绝对时间点，
+	// 已经被第一次 ReadMessage 消耗掉一部分。第一次读慢的时候（共享 CI
+	// runner 上很常见），这一次读剩下的预算可能不足以等到连接关闭——
+	// 表现就是该用例耗时正好卡在 2.00s 然后失败。
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("reset read deadline: %v", err)
+	}
 	if _, _, err := conn.ReadMessage(); err == nil {
 		t.Error("expected connection to close after the kick notification")
 	}
@@ -181,6 +188,14 @@ func TestReconnectReplacesPreviousSocket(t *testing.T) {
 		t.Errorf("push = %q, want %q", msg, "hello")
 	}
 
+	// 【必须轮询等待，不能断言瞬时值】totalOnline 的递减发生在连接清理的
+	// goroutine 里（device.go 有 4 处并发增减）。旧连接读到关闭，不代表
+	// 服务端已经处理完下线——直接断言是竞态，本地 40 次能挂 3 次。
+	// 写法和同文件里等 offlineEvents 的循环一致。
+	deadline := time.Now().Add(2 * time.Second)
+	for atomic.LoadInt32(&dm.totalOnline) != 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if got := atomic.LoadInt32(&dm.totalOnline); got != 1 {
 		t.Errorf("totalOnline = %d after reconnect, want 1", got)
 	}
