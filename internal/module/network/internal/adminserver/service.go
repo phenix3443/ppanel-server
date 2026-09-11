@@ -41,6 +41,10 @@ func (s *Service) UpdateServer(ctx context.Context, req *dto.UpdateServerRequest
 	return newUpdateServerLogic(ctx, s.deps).UpdateServer(req)
 }
 
+func (s *Service) SetServerTargetVersion(ctx context.Context, req *dto.SetServerTargetVersionRequest) error {
+	return newSetServerTargetVersionLogic(ctx, s.deps).SetServerTargetVersion(req)
+}
+
 func (s *Service) DeleteServer(ctx context.Context, req *dto.DeleteServerRequest) error {
 	return newDeleteServerLogic(ctx, s.deps).DeleteServer(req)
 }

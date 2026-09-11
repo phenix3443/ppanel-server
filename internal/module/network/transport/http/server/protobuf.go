@@ -146,6 +146,8 @@ func queryServerProtocolConfigResponseToProtobuf(response *dto.QueryServerConfig
 			Outbound:               outbound,
 			Protocols:              protocols,
 			Total:                  response.Total,
+			// 节点走的是这条路径（它无条件请求 protobuf），漏了这行整套下发就是死的。
+			TargetVersion: response.TargetVersion,
 		},
 	}, nil
 }

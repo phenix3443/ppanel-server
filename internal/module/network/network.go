@@ -25,6 +25,8 @@ type Service interface {
 	CreateServer(ctx context.Context, req *dto.CreateServerRequest) error
 	UpdateServer(ctx context.Context, req *dto.UpdateServerRequest) error
 	DeleteServer(ctx context.Context, req *dto.DeleteServerRequest) error
+	// SetServerTargetVersion 设置节点的期望版本（可填更旧的版本以回退）。
+	SetServerTargetVersion(ctx context.Context, req *dto.SetServerTargetVersionRequest) error
 	FilterServerList(ctx context.Context, req *dto.FilterServerListRequest) (*dto.FilterServerListResponse, error)
 	ResetSortWithServer(ctx context.Context, req *dto.ResetSortRequest) error
 	GetServerProtocols(ctx context.Context, req *dto.GetServerProtocolsRequest) (*dto.GetServerProtocolsResponse, error)
@@ -139,6 +141,10 @@ func (s *service) CreateServer(ctx context.Context, req *dto.CreateServerRequest
 
 func (s *service) UpdateServer(ctx context.Context, req *dto.UpdateServerRequest) error {
 	return s.admin.UpdateServer(ctx, req)
+}
+
+func (s *service) SetServerTargetVersion(ctx context.Context, req *dto.SetServerTargetVersionRequest) error {
+	return s.admin.SetServerTargetVersion(ctx, req)
 }
 
 func (s *service) DeleteServer(ctx context.Context, req *dto.DeleteServerRequest) error {

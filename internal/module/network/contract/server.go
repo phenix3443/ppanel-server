@@ -9,6 +9,15 @@ type CreateServerRequest struct {
 	Protocols []Protocol `json:"protocols"`
 }
 
+// SetServerTargetVersionRequest 设置某个节点的期望版本。
+//
+// TargetVersion 空串表示不干预。**可以填比当前更旧的版本**——新版出问题时
+// 要能回退，回退和升级走同一条路。
+type SetServerTargetVersionRequest struct {
+	Id            int64  `json:"id" validate:"required"`
+	TargetVersion string `json:"target_version"`
+}
+
 type DeleteServerRequest struct {
 	Id int64 `json:"id"`
 }
@@ -230,6 +239,9 @@ type QueryServerConfigResponse struct {
 	Outbound               []NodeOutbound `json:"outbound"`
 	Protocols              []Protocol     `json:"protocols"`
 	Total                  int64          `json:"total"`
+	// TargetVersion 是控制台希望这个节点运行的版本。节点读到且与自身不同时
+	// 自行升级并重启。空串表示不干预。
+	TargetVersion string `json:"target_version,omitempty"`
 }
 
 type GetServerNodeConfigRequest struct {
@@ -292,6 +304,9 @@ type ServerPushStatusRequest struct {
 	Mem       float64 `json:"mem"`
 	Disk      float64 `json:"disk"`
 	UpdatedAt int64   `json:"updated_at"`
+	// 节点自报：正在运行的版本，以及它查到的上游最新版。旧节点不会带，为空。
+	Version       string `json:"version"`
+	LatestVersion string `json:"latest_version"`
 	// CertPinSHA256 is transport metadata carried by the
 	// X-Node-Certificate-SHA256 request header, not part of the body.
 	CertPinSHA256 string `json:"-"`
@@ -304,6 +319,11 @@ type ServerStatus struct {
 	Protocol string             `json:"protocol"`
 	Online   []ServerOnlineUser `json:"online"`
 	Status   string             `json:"status"`
+	// Version/LatestVersion 由节点上报；UpgradeAvailable 是面板据此推出的结论，
+	// 放在服务端算是为了让「怎么算可升级」只有一处实现（前端不要自己比版本号）。
+	Version          string `json:"version,omitempty"`
+	LatestVersion    string `json:"latest_version,omitempty"`
+	UpgradeAvailable bool   `json:"upgrade_available"`
 }
 
 type ServerUser struct {

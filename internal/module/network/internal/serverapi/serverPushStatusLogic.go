@@ -34,10 +34,12 @@ func (l *ServerPushStatusLogic) ServerPushStatus(req *dto.ServerPushStatusReques
 		return errors.New("server not found")
 	}
 	err = l.deps.Store.Node().UpdateStatusCache(l.ctx, req.ServerId, &node.Status{
-		Cpu:       req.Cpu,
-		Mem:       req.Mem,
-		Disk:      req.Disk,
-		UpdatedAt: req.UpdatedAt,
+		Cpu:           req.Cpu,
+		Mem:           req.Mem,
+		Disk:          req.Disk,
+		UpdatedAt:     req.UpdatedAt,
+		Version:       req.Version,
+		LatestVersion: req.LatestVersion,
 	})
 	if err != nil {
 		l.Errorw("[ServerPushStatus] UpdateNodeStatus error", logger.Field("error", err))

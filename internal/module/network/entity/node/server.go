@@ -15,9 +15,12 @@ type Server struct {
 	Country string `gorm:"type:varchar(128);not null;default:'';comment:Country"`
 	City    string `gorm:"type:varchar(128);not null;default:'';comment:City"`
 	//Ratio          float32    `gorm:"type:DECIMAL(4,2);not null;default:0;comment:Traffic Ratio"`
-	Address        string     `gorm:"type:varchar(100);not null;default:'';comment:Server Address"`
-	Sort           int        `gorm:"type:int;not null;default:0;comment:Sort"`
-	Protocols      string     `gorm:"type:text;default:null;comment:Protocol"`
+	Address   string `gorm:"type:varchar(100);not null;default:'';comment:Server Address"`
+	Sort      int    `gorm:"type:int;not null;default:0;comment:Sort"`
+	Protocols string `gorm:"type:text;default:null;comment:Protocol"`
+	// TargetVersion 是控制台下发的期望版本。节点拉配置时读到它、与自身不同就自升级。
+	// 空串表示「不管」——刻意不支持用它表达「升到最新」，否则升级时机不可预测。
+	TargetVersion  string     `gorm:"type:varchar(64);not null;default:'';comment:Desired node version"`
 	LastReportedAt *time.Time `gorm:"comment:Last Reported Time"`
 	CreatedAt      time.Time  `gorm:"<-:create;comment:Creation Time"`
 	UpdatedAt      time.Time  `gorm:"comment:Update Time"`
