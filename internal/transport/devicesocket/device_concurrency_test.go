@@ -33,6 +33,21 @@ func dialDevice(t *testing.T, srv *httptest.Server, deviceID string) *websocket.
 	return conn
 }
 
+// 【必须等注册完成再发起下一次 dial】客户端 Dial 在握手响应写回时就返回了，
+// 而服务端的 AddDevice 还在注册途中。紧接着用同一个 device ID 再 dial，
+// 两次注册的先后是竞态：后注册的那条会把先注册的踢掉——如果旧连接反而
+// 后注册，被踢掉的就是新连接，表现为新连接收不到推送（close 1006）。
+func waitOnline(t *testing.T, dm *DeviceManager, want int32) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for atomic.LoadInt32(&dm.totalOnline) != want && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := atomic.LoadInt32(&dm.totalOnline); got != want {
+		t.Fatalf("totalOnline = %d, want %d", got, want)
+	}
+}
+
 // heartbeat replies and subscription pushes write to the same connection
 // from different goroutines; the manager must serialize them instead of
 // panicking with gorilla/websocket's concurrent-write assertion. Run with
@@ -44,6 +59,7 @@ func TestConcurrentHeartbeatAndPushWrites(t *testing.T) {
 	const userID = int64(7)
 	srv := deviceTestServer(t, dm, userID, 5)
 	conn := dialDevice(t, srv, "dev1")
+	waitOnline(t, dm, 1)
 
 	var received atomic.Int64
 	closed := make(chan struct{})
@@ -93,11 +109,11 @@ func TestConcurrentHeartbeatAndPushWrites(t *testing.T) {
 	close(stop)
 	wg.Wait()
 
-	// 【这里等的是「收够 800 条」，不是连接状态，放宽是安全的】
-	// 共享 CI runner 上 2 秒收不完 4×200 条：Nightly 见过耗时 2.11s 后
-	// 报 "received N messages, want at least 800"。正常情况下这个循环
-	// 毫秒级就退出，放宽只延长失败路径的等待。
-	deadline := time.Now().Add(30 * time.Second)
+	// 【等的是「收够 800 条」，不是连接状态】超时曾经放宽到 30s 来压
+	// flaky，但真正的原因是 dial 之后没等注册完成：第一条 SendToDevice
+	// 撞上 "device offline" 会让 push worker 直接 return，剩下的消息
+	// 根本没发出去，再长的超时也等不到。注册已由 waitOnline 保证。
+	deadline := time.Now().Add(10 * time.Second)
 	for received.Load() < pushWorkers*pushesPerWorker && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -169,6 +185,7 @@ func TestReconnectReplacesPreviousSocket(t *testing.T) {
 	const userID = int64(11)
 	srv := deviceTestServer(t, dm, userID, 5)
 	oldConn := dialDevice(t, srv, "dev1")
+	waitOnline(t, dm, 1)
 	newConn := dialDevice(t, srv, "dev1")
 
 	if err := oldConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
