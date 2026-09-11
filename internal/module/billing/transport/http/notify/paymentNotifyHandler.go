@@ -19,6 +19,7 @@ import (
 const (
 	maxStripePayloadSize    = 65_536
 	maxCryptomusPayloadSize = 65_536
+	maxWaffoPayloadSize     = 65_536
 )
 
 var errNotifyPayloadTooLarge = errors.New("http: request body too large")
@@ -99,6 +100,19 @@ func PaymentNotifyHandler(service billing.Service) app.HandlerFunc {
 			}
 			ctx.String(consts.StatusOK, "success")
 
+		case payment.Waffo:
+			payload, err := waffoPayload(ctx.Request.Body())
+			if err != nil {
+				httpx.HttpResult(ctx, nil, err)
+				return
+			}
+			if err := service.WaffoNotify(c, payload, string(ctx.GetHeader("X-Waffo-Signature"))); err != nil {
+				logger.WithContext(c).Errorf("WaffoNotify failed: %v", err.Error())
+				ctx.String(consts.StatusBadRequest, err.Error())
+				return
+			}
+			ctx.String(consts.StatusOK, "OK")
+
 		default:
 			logger.WithContext(c).Errorf("platform %s not support", platform)
 			ctx.String(consts.StatusBadRequest, "unsupported payment platform")
@@ -126,6 +140,13 @@ func stripePayload(payload []byte) ([]byte, error) {
 
 func cryptomusPayload(payload []byte) ([]byte, error) {
 	if len(payload) > maxCryptomusPayloadSize {
+		return nil, errNotifyPayloadTooLarge
+	}
+	return payload, nil
+}
+
+func waffoPayload(payload []byte) ([]byte, error) {
+	if len(payload) > maxWaffoPayloadSize {
 		return nil, errNotifyPayloadTooLarge
 	}
 	return payload, nil

@@ -23,6 +23,7 @@ import (
 	"github.com/perfect-panel/server/internal/module/billing/internal/payment/cryptomus"
 	"github.com/perfect-panel/server/internal/module/billing/internal/payment/epay"
 	"github.com/perfect-panel/server/internal/module/billing/internal/payment/stripe"
+	"github.com/perfect-panel/server/internal/module/billing/internal/payment/waffo"
 	"github.com/perfect-panel/server/internal/module/identity/entity/user"
 	"github.com/perfect-panel/server/internal/module/platform/entity/log"
 	"github.com/perfect-panel/server/internal/repository"
@@ -33,8 +34,12 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// waffoBaseURL is empty in production, so the client always talks to the
+// official gateway. Only tests override it.
+var waffoBaseURL = ""
+
 // PurchaseCheckoutLogic handles the checkout process for various payment methods
-// including EPay, Stripe, Alipay F2F, Cryptomus, and balance payments
+// including EPay, Stripe, Alipay F2F, Cryptomus, Waffo, and balance payments
 type PurchaseCheckoutLogic struct {
 	logger.Logger
 	ctx  context.Context
@@ -259,6 +264,18 @@ func (l *PurchaseCheckoutLogic) PurchaseCheckout(req *dto.CheckoutOrderRequest) 
 		if err != nil {
 			l.Errorw("[PurchaseCheckout] cryptomusPayment error", logger.Field("error", err.Error()))
 			return nil, errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "cryptomusPayment error: %v", err.Error())
+		}
+		resp = &dto.CheckoutOrderResponse{
+			CheckoutUrl: url,
+			Type:        "url", // Client should redirect to URL
+		}
+
+	case payment2.Waffo:
+		// Process Waffo payment - generates hosted checkout URL for redirect
+		url, err := l.waffoPayment(paymentConfig, orderInfo, req.ReturnUrl)
+		if err != nil {
+			l.Errorw("[PurchaseCheckout] waffoPayment error", logger.Field("error", err.Error()))
+			return nil, errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "waffoPayment error: %v", err.Error())
 		}
 		resp = &dto.CheckoutOrderResponse{
 			CheckoutUrl: url,
@@ -617,6 +634,62 @@ func (l *PurchaseCheckoutLogic) cryptomusInvoiceURL(invoice *cryptomus.Invoice, 
 		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "Cryptomus invoice has no checkout URL")
 	}
 	return invoice.URL, nil
+}
+
+// waffoPayment processes a Waffo payment by opening a hosted checkout
+// session priced with a snapshot override, so one dashboard product covers
+// every order amount. As merchant of record the gateway adds the buyer's tax
+// on top of that price, which is why the payment expectation records the
+// pre-tax amount the callback compares against.
+func (l *PurchaseCheckoutLogic) waffoPayment(config *payment.Payment, info *order.Order, returnUrl string) (string, error) {
+	waffoConfig := &payment.WaffoConfig{}
+	if err := waffoConfig.Unmarshal([]byte(config.Config)); err != nil {
+		l.Errorw("[PurchaseCheckout] Unmarshal Waffo config error", logger.Field("error", err.Error()))
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "Unmarshal error: %s", err.Error())
+	}
+	client, err := waffo.NewClient(waffo.Config{
+		MerchantID:  waffoConfig.MerchantID,
+		PrivateKey:  waffoConfig.PrivateKey,
+		StoreID:     waffoConfig.StoreID,
+		ProductID:   waffoConfig.ProductID,
+		TaxCategory: waffoConfig.TaxCategory,
+		TestMode:    waffoConfig.TestMode,
+		BaseURL:     waffoBaseURL,
+	})
+	if err != nil {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "create Waffo client: %v", err)
+	}
+
+	currency := strings.ToUpper(l.deps.Config.CurrencyUnit)
+	if err := l.persistPaymentExpectation(info, info.Amount, currency); err != nil {
+		return "", err
+	}
+
+	session, err := client.CreateCheckout(l.ctx, waffo.Order{
+		OrderNo:       info.OrderNo,
+		Amount:        info.Amount,
+		Currency:      currency,
+		BuyerIdentity: waffoBuyerIdentity(info),
+		ReturnURL:     returnUrl,
+		// The session must not outlive the order's close window: a payment
+		// made after the order closed could no longer be fulfilled.
+		ExpiresInSeconds: checkout.CloseOrderTimeMinutes * 60,
+	})
+	if err != nil {
+		l.Errorw("[PurchaseCheckout] Create Waffo checkout error", logger.Field("error", err.Error()))
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "create Waffo checkout: %s", err.Error())
+	}
+	return session.CheckoutURL, nil
+}
+
+// waffoBuyerIdentity is the stable identifier the gateway binds the order to.
+// It must not be the buyer's email: the checkout page lets the buyer edit
+// that field, and a guest order has no account to fall back on.
+func waffoBuyerIdentity(info *order.Order) string {
+	if info.UserId != 0 {
+		return "user:" + strconv.FormatInt(info.UserId, 10)
+	}
+	return "order:" + info.OrderNo
 }
 
 func (l *PurchaseCheckoutLogic) paymentPublicBaseURL(config *payment.Payment) string {

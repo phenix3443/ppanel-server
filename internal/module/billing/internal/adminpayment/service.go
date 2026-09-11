@@ -13,6 +13,7 @@ import (
 	paymentModel "github.com/perfect-panel/server/internal/module/billing/entity/payment"
 	"github.com/perfect-panel/server/internal/module/billing/internal/payment"
 	"github.com/perfect-panel/server/internal/module/billing/internal/payment/stripe"
+	"github.com/perfect-panel/server/internal/module/billing/internal/payment/waffo"
 	"github.com/perfect-panel/server/internal/repository"
 	"github.com/perfect-panel/server/pkg/logger"
 	"github.com/perfect-panel/server/pkg/random"
@@ -90,6 +91,13 @@ func (s *Service) Create(ctx context.Context, req *dto.CreatePaymentMethodReques
 			content, _ := cfg.Marshal()
 			paymentMethod.Config = string(content)
 		}
+		if payment.ParsePlatform(req.Platform) == payment.Waffo {
+			config, err := s.syncWaffoWebhook(ctx, paymentMethod, "")
+			if err != nil {
+				return err
+			}
+			paymentMethod.Config = config
+		}
 		if err := store.Payment().Insert(ctx, paymentMethod); err != nil {
 			return errors.Wrapf(xerr.NewErrCode(xerr.DatabaseInsertError), "insert payment method error: %s", err.Error())
 		}
@@ -146,8 +154,19 @@ func (s *Service) Update(ctx context.Context, req *dto.UpdatePaymentMethodReques
 			}
 		}
 	}
+	previousConfig := method.Config
 	mapping.DeepCopy(method, req)
 	method.Config = config
+	if payment.ParsePlatform(req.Platform) == payment.Waffo {
+		// The admin form only posts the documented fields, so the registered
+		// webhook id has to be carried over from the stored config rather
+		// than trusted from the request.
+		synced, err := s.syncWaffoWebhook(ctx, method, previousConfig)
+		if err != nil {
+			return nil, err
+		}
+		method.Config = synced
+	}
 	if err := s.payments.Update(ctx, method); err != nil {
 		log.Errorw("update payment method error", logger.Field("id", req.Id), logger.Field("error", err.Error()))
 		return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseUpdateError), "update payment method error: %s", err.Error())
@@ -235,6 +254,58 @@ func (s *Service) Platforms(_ context.Context) (*dto.PaymentPlatformResponse, er
 	return &dto.PaymentPlatformResponse{List: payment.GetSupportedPlatforms()}, nil
 }
 
+// syncWaffoWebhook points the Waffo store at this payment method's callback
+// endpoint and returns the config to persist, with the gateway's webhook id
+// recorded in it. previousConfig is the stored config the id is inherited
+// from, or empty when the method is being created.
+func (s *Service) syncWaffoWebhook(ctx context.Context, method *paymentModel.Payment, previousConfig string) (string, error) {
+	log := logger.WithContext(ctx)
+	var cfg paymentModel.WaffoConfig
+	if err := cfg.Unmarshal([]byte(method.Config)); err != nil {
+		log.Errorw("[SyncWaffoWebhook] unmarshal config error", logger.Field("error", err.Error()))
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "unmarshal waffo config error: %s", err.Error())
+	}
+	if previousConfig != "" {
+		var stored paymentModel.WaffoConfig
+		if err := stored.Unmarshal([]byte(previousConfig)); err == nil && stored.WebhookID != "" {
+			cfg.WebhookID = stored.WebhookID
+		}
+	}
+	client, err := waffo.NewClient(waffo.Config{
+		MerchantID:  cfg.MerchantID,
+		PrivateKey:  cfg.PrivateKey,
+		StoreID:     cfg.StoreID,
+		ProductID:   cfg.ProductID,
+		TaxCategory: cfg.TaxCategory,
+		TestMode:    cfg.TestMode,
+	})
+	if err != nil {
+		log.Errorw("[SyncWaffoWebhook] create client error", logger.Field("error", err.Error()))
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "create waffo client error: %s", err.Error())
+	}
+	webhookID, err := client.RegisterWebhook(ctx, cfg.WebhookID, s.notifyURL(method))
+	if err != nil {
+		log.Errorw("[SyncWaffoWebhook] register webhook error", logger.Field("error", err.Error()))
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "register waffo webhook error: %s", err.Error())
+	}
+	cfg.WebhookID = webhookID
+	content, err := cfg.Marshal()
+	if err != nil {
+		return "", errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "marshal waffo config error: %s", err.Error())
+	}
+	return string(content), nil
+}
+
+// notifyURL is the public callback endpoint of a payment method, matching the
+// one reported by List.
+func (s *Service) notifyURL(method *paymentModel.Payment) string {
+	base := method.Domain
+	if base == "" {
+		base = "https://" + s.host
+	}
+	return strings.TrimSuffix(base, "/") + "/v1/notify/" + method.Platform + "/" + method.Token
+}
+
 func validatePaymentFee(mode uint, percent, amount int64) error {
 	if mode > 3 || percent < 0 || percent > 100 || amount < 0 {
 		return errors.Wrapf(xerr.NewErrCodeMsg(400, "INVALID_PAYMENT_FEE"), "invalid payment fee configuration")
@@ -281,6 +352,33 @@ func parsePaymentPlatformConfig(ctx context.Context, platform payment.Platform, 
 		cfg.MerchantID = strings.TrimSpace(cfg.MerchantID)
 		cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 		if cfg.MerchantID == "" || cfg.APIKey == "" {
+			return ""
+		}
+		content, err := cfg.Marshal()
+		if err != nil {
+			return ""
+		}
+		return string(content)
+	case payment.Waffo:
+		var cfg paymentModel.WaffoConfig
+		if err := cfg.Unmarshal(data); err != nil {
+			return ""
+		}
+		cfg.MerchantID = strings.TrimSpace(cfg.MerchantID)
+		cfg.PrivateKey = strings.TrimSpace(cfg.PrivateKey)
+		cfg.StoreID = strings.TrimSpace(cfg.StoreID)
+		cfg.ProductID = strings.TrimSpace(cfg.ProductID)
+		cfg.TaxCategory = strings.TrimSpace(cfg.TaxCategory)
+		if cfg.TaxCategory == "" {
+			cfg.TaxCategory = waffo.DefaultTaxCategory
+		}
+		// Every field is required before a checkout can be opened, and an
+		// unknown tax category is rejected by the gateway at purchase time —
+		// too late for the administrator to notice.
+		if cfg.MerchantID == "" || cfg.PrivateKey == "" || cfg.StoreID == "" || cfg.ProductID == "" {
+			return ""
+		}
+		if !waffo.KnownTaxCategory(cfg.TaxCategory) {
 			return ""
 		}
 		content, err := cfg.Marshal()

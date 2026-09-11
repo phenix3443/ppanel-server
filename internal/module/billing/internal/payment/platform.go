@@ -12,6 +12,7 @@ const (
 	EPay
 	Balance
 	Cryptomus
+	Waffo
 	UNSUPPORTED Platform = -1
 )
 
@@ -21,6 +22,7 @@ var platformNames = map[string]Platform{
 	"EPay":        EPay,
 	"balance":     Balance,
 	"Cryptomus":   Cryptomus,
+	"Waffo":       Waffo,
 	"unsupported": UNSUPPORTED,
 }
 
@@ -45,7 +47,7 @@ func ParsePlatform(s string) Platform {
 // an internal checkout method rather than an administrator-configurable
 // gateway.
 func SupportedPlatformNames() []string {
-	return []string{Stripe.String(), AlipayF2F.String(), EPay.String(), Balance.String(), Cryptomus.String()}
+	return []string{Stripe.String(), AlipayF2F.String(), EPay.String(), Balance.String(), Cryptomus.String(), Waffo.String()}
 }
 
 func GetSupportedPlatforms() []integration.Info {
@@ -79,6 +81,18 @@ func GetSupportedPlatforms() []integration.Info {
 				"url":  "URL",
 				"key":  "Key",
 				"type": "Type",
+			},
+		},
+		{
+			Platform:    Waffo.String(),
+			PlatformURL: "https://pancake.waffo.ai",
+			PlatformFieldDescription: map[string]string{
+				"merchant_id":  "Merchant ID (MER_...)",
+				"private_key":  "RSA Private Key (PEM)",
+				"store_id":     "Store ID (STO_...)",
+				"product_id":   "One-time Product ID (PROD_...)",
+				"tax_category": "Tax Category, one of digital_goods/saas/software/ebook/online_course/consulting/professional_service",
+				"test_mode":    "Test Mode",
 			},
 		},
 		{
