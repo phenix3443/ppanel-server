@@ -363,6 +363,40 @@ func TestRegisterWebhookAddsAndUpdates(t *testing.T) {
 	}
 }
 
+// A transient failure must not be mistaken for a deleted endpoint: re-adding
+// on any error leaves the store with a second endpoint delivering every event
+// twice, and the config only remembers the newest id.
+func TestRegisterWebhookKeepsEndpointOnTransientFailure(t *testing.T) {
+	privatePEM, _, _ := testKeys(t)
+	var paths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/actions/store/update-webhook" {
+			w.WriteHeader(http.StatusBadGateway)
+			mustWrite(t, w, `{"data":null,"errors":[{"message":"upstream unavailable","layer":"service"}]}`)
+			return
+		}
+		mustWrite(t, w, `{"data":{"webhook":{"id":"WHK_dup","storeId":"STO_2aUyqjCzEIiEcYMKj7TZtw","channel":"http","url":"https://panel.example/v1/notify/Waffo/tok","events":["order.completed"],"testMode":false}}}`)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(Config{
+		MerchantID: testMerchantID, PrivateKey: privatePEM, StoreID: testStoreID, BaseURL: server.URL,
+	})
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+	if _, err := client.RegisterWebhook(context.Background(), "WHK_live", "https://panel.example/v1/notify/Waffo/tok"); err == nil {
+		t.Fatal("a transient update failure must surface, not silently register a second endpoint")
+	}
+	for _, path := range paths {
+		if path == "/v1/actions/store/add-webhook" {
+			t.Fatal("a transient update failure must not add a duplicate endpoint")
+		}
+	}
+}
+
 func TestRegisterWebhookReAddsWhenStoredEndpointIsGone(t *testing.T) {
 	privatePEM, _, _ := testKeys(t)
 	var paths []string

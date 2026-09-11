@@ -90,7 +90,7 @@ func GetSupportedPlatforms() []integration.Info {
 				"merchant_id":  "Merchant ID (MER_...)",
 				"private_key":  "RSA Private Key (PEM)",
 				"store_id":     "Store ID (STO_...)",
-				"product_id":   "One-time Product ID (PROD_...)",
+				"product_id":   "One-time Product ID (PROD_...); it must carry a price in the site currency, otherwise every checkout is rejected",
 				"tax_category": "Tax Category, one of digital_goods/saas/software/ebook/online_course/consulting/professional_service",
 				"test_mode":    "Test Mode",
 			},

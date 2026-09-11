@@ -299,15 +299,21 @@ func (c *Client) RegisterWebhook(ctx context.Context, webhookID, callbackURL str
 	}
 	events := []pancake.WebhookEventType{pancake.WebhookEventTypeOrderCompleted}
 	if webhookID != "" {
-		if _, err := c.api.Webhooks.Update(ctx, pancake.UpdateWebhookParams{
+		_, err := c.api.Webhooks.Update(ctx, pancake.UpdateWebhookParams{
 			ID:     webhookID,
 			URL:    optional(callbackURL),
 			Events: events,
-		}); err == nil {
+		})
+		if err == nil {
 			return webhookID, nil
 		}
-		// The stored id no longer resolves (store recreated, webhook deleted
-		// in the dashboard). Fall through and register a fresh endpoint.
+		// Only a gone endpoint (deleted in the dashboard, store recreated)
+		// justifies registering a fresh one. Treating a transient failure the
+		// same way leaves the store with two endpoints delivering every event
+		// twice, while the config remembers only the newest id.
+		if !isWebhookGone(err) {
+			return "", fmt.Errorf("update Waffo webhook: %w", err)
+		}
 	}
 	if c.StoreID == "" {
 		return "", errors.New("waffo store id is not configured")
@@ -323,6 +329,24 @@ func (c *Client) RegisterWebhook(ctx context.Context, webhookID, callbackURL str
 		return "", fmt.Errorf("register Waffo webhook: %w", err)
 	}
 	return result.Webhook.ID, nil
+}
+
+// isWebhookGone reports whether the gateway rejected the update because the
+// endpoint no longer exists, as opposed to any other failure.
+func isWebhookGone(err error) bool {
+	var apiErr *pancake.Error
+	if !errors.As(err, &apiErr) {
+		return false
+	}
+	if apiErr.Status != http.StatusNotFound && apiErr.Status != http.StatusBadRequest {
+		return false
+	}
+	for _, notice := range apiErr.Errors {
+		if strings.Contains(strings.ToLower(notice.Message), "not found") {
+			return true
+		}
+	}
+	return false
 }
 
 // FormatMoney renders a minor-unit amount as the decimal display string the
