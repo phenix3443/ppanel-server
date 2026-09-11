@@ -96,5 +96,7 @@ func (l *QueryServerProtocolConfigLogic) QueryServerProtocolConfig(req *dto.Quer
 		Outbound:               nodeValues.Outbound,
 		Protocols:              protocols,
 		Total:                  int64(len(protocols)),
+		// 节点每次拉配置都会看到它；与自身版本不同就自升级。
+		TargetVersion: data.TargetVersion,
 	}, nil
 }

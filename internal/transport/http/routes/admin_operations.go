@@ -59,6 +59,7 @@ func registerAdminServerRoutes(router *server.Hertz, deps Dependencies) {
 	group.POST("/create", adminServer.CreateServerHandler(deps.Network))
 	group.POST("/delete", adminServer.DeleteServerHandler(deps.Network))
 	group.GET("/list", adminServer.FilterServerListHandler(deps.Network))
+	group.POST("/target_version", adminServer.SetServerTargetVersionHandler(deps.Network))
 	group.POST("/node/create", adminServer.CreateNodeHandler(deps.Network))
 	group.POST("/node/delete", adminServer.DeleteNodeHandler(deps.Network))
 	group.GET("/node/list", adminServer.FilterNodeListHandler(deps.Network))

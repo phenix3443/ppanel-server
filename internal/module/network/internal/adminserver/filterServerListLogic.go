@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/perfect-panel/server/internal/infra/mapping"
+	"github.com/perfect-panel/server/internal/infra/nodeversion"
 	dto "github.com/perfect-panel/server/internal/module/network/contract"
 	"github.com/perfect-panel/server/internal/module/network/entity/node"
 	"github.com/perfect-panel/server/pkg/logger"
@@ -43,6 +44,9 @@ func (l *FilterServerListLogic) FilterServerList(req *dto.FilterServerListReques
 
 	list := make([]dto.Server, 0)
 
+	// 查一次给整页共用；缓存命中时不产生网络请求。
+	latest := latestNodeVersion.Latest()
+
 	for _, datum := range data {
 		var server dto.Server
 		mapping.DeepCopy(&server, datum)
@@ -70,6 +74,12 @@ func (l *FilterServerListLogic) FilterServerList(req *dto.FilterServerListReques
 			Disk:   nodeStatus.Disk,
 			Online: l.handlerServerStatus(datum.Id, protocols),
 			Status: l.handlerServerStaus(datum.LastReportedAt),
+			// 当前版本由节点上报；最新版本由面板统一查（节点多了各自查会被
+			// GitHub 限流，而且节点不必具备访问 GitHub 的能力）。
+			// 是否可升级在这里算——只有一处实现，前端不要自己比版本号。
+			Version:          nodeStatus.Version,
+			LatestVersion:    latest,
+			UpgradeAvailable: node.UpgradeAvailable(nodeStatus.Version, latest),
 		}
 		list = append(list, server)
 	}
@@ -164,3 +174,7 @@ func (l *FilterServerListLogic) handlerServerStaus(last *time.Time) string {
 	return "online"
 
 }
+
+// 上游最新版本缓存 1 小时。发版频率远低于此，而这个值在每次打开节点列表时
+// 都会被读到——不缓存会很快打满 GitHub 未认证 API 的 60 次/小时。
+var latestNodeVersion = nodeversion.New(time.Hour)

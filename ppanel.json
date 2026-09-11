@@ -4104,6 +4104,44 @@
                 }
             }
         },
+        "/v1/admin/server/target_version": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin"
+                ],
+                "summary": "Set the desired node version (supports downgrade)",
+                "parameters": [
+                    {
+                        "description": "Request parameters",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/dto.SetServerTargetVersionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/result.ResponseSuccessBean"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/admin/server/update": {
             "post": {
                 "security": [
@@ -15362,6 +15400,10 @@
                 "push_interval": {
                     "type": "integer"
                 },
+                "target_version": {
+                    "description": "TargetVersion 是控制台希望这个节点运行的版本。节点读到且与自身不同时\n自行升级并重启。空串表示不干预。",
+                    "type": "string"
+                },
                 "total": {
                     "type": "integer"
                 },
@@ -16083,6 +16125,9 @@
                 "disk": {
                     "type": "number"
                 },
+                "latest_version": {
+                    "type": "string"
+                },
                 "mem": {
                     "type": "number"
                 },
@@ -16097,6 +16142,10 @@
                 },
                 "updated_at": {
                     "type": "integer"
+                },
+                "version": {
+                    "description": "节点自报：正在运行的版本，以及它查到的上游最新版。旧节点不会带，为空。",
+                    "type": "string"
                 }
             }
         },
@@ -16129,6 +16178,9 @@
                 "disk": {
                     "type": "number"
                 },
+                "latest_version": {
+                    "type": "string"
+                },
                 "mem": {
                     "type": "number"
                 },
@@ -16142,6 +16194,13 @@
                     "type": "string"
                 },
                 "status": {
+                    "type": "string"
+                },
+                "upgrade_available": {
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "Version/LatestVersion 由节点上报；UpgradeAvailable 是面板据此推出的结论，\n放在服务端算是为了让「怎么算可升级」只有一处实现（前端不要自己比版本号）。",
                     "type": "string"
                 }
             }
@@ -16270,6 +16329,20 @@
                     "items": {
                         "$ref": "#/definitions/dto.TimePeriod"
                     }
+                }
+            }
+        },
+        "dto.SetServerTargetVersionRequest": {
+            "type": "object",
+            "required": [
+                "id"
+            ],
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "target_version": {
+                    "type": "string"
                 }
             }
         },

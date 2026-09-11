@@ -11,6 +11,11 @@ type (
 		Mem       float64 `json:"mem"`
 		Disk      float64 `json:"disk"`
 		UpdatedAt int64   `json:"updated_at"`
+		// Version 是节点正在跑的版本，LatestVersion 是节点自己查到的上游最新版。
+		// 由节点查而不是面板查，面板就不必访问外网。旧版本节点不会上报这两项，
+		// 此时为空——消费方必须容忍空值，不能据此判断「没有升级」。
+		Version       string `json:"version,omitempty"`
+		LatestVersion string `json:"latest_version,omitempty"`
 	}
 
 	OnlineUserSubscribe map[int64][]string
