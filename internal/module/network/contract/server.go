@@ -24,9 +24,13 @@ type SetServerTargetVersionRequest struct {
 
 // ServerNodeVersion 是版本下拉里的一项。
 type ServerNodeVersion struct {
-	Version     string `json:"version"`
-	Prerelease  bool   `json:"prerelease"`
-	PublishedAt string `json:"published_at"`
+	Version    string `json:"version"`
+	Prerelease bool   `json:"prerelease"`
+	// SelfManageable 为 false 表示这个版本没有自升级能力，下发过去节点就失联了。
+	// 仍然返回给前端而不是直接过滤掉，是为了能把「为什么不能选」显示出来——
+	// 列表里凭空少几个版本只会让人以为是接口坏了。
+	SelfManageable bool   `json:"self_manageable"`
+	PublishedAt    string `json:"published_at"`
 }
 
 // ListNodeVersionsResponse 供控制台渲染版本下拉。
@@ -34,10 +38,12 @@ type ServerNodeVersion struct {
 // List 可能为空（还没拉到上游，或 GitHub 不可达），此时前端应退化成让管理员
 // 手输版本号，而不是把升级入口禁掉。
 type ListNodeVersionsResponse struct {
-	Repo    string              `json:"repo"`
-	Latest  string              `json:"latest"`
-	Default string              `json:"default_target_version"`
-	List    []ServerNodeVersion `json:"list"`
+	Repo    string `json:"repo"`
+	Latest  string `json:"latest"`
+	Default string `json:"default_target_version"`
+	// MinSelfManageable 是能下发的最低版本，比它旧的下发过去节点会失联。
+	MinSelfManageable string              `json:"min_self_manageable"`
+	List              []ServerNodeVersion `json:"list"`
 }
 
 type DeleteServerRequest struct {

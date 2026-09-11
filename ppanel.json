@@ -13935,6 +13935,10 @@
                         "$ref": "#/definitions/dto.ServerNodeVersion"
                     }
                 },
+                "min_self_manageable": {
+                    "description": "MinSelfManageable 是能下发的最低版本，比它旧的下发过去节点会失联。",
+                    "type": "string"
+                },
                 "repo": {
                     "type": "string"
                 }
@@ -16155,6 +16159,10 @@
                 },
                 "published_at": {
                     "type": "string"
+                },
+                "self_manageable": {
+                    "description": "SelfManageable 为 false 表示这个版本没有自升级能力，下发过去节点就失联了。\n仍然返回给前端而不是直接过滤掉，是为了能把「为什么不能选」显示出来——\n列表里凭空少几个版本只会让人以为是接口坏了。",
+                    "type": "boolean"
                 },
                 "version": {
                     "type": "string"
