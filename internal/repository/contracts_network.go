@@ -74,6 +74,9 @@ type TrafficRepo interface {
 	QueryUserTrafficRanking(ctx context.Context, start, end time.Time) ([]traffic.UserTrafficRanking, error)
 	QueryTrafficLogPageList(ctx context.Context, userId, subscribeId int64, page, size int) ([]*traffic.TrafficLog, int64, error)
 	QueryTrafficLogDetails(ctx context.Context, filter *traffic.TrafficLogDetailsFilter) ([]*traffic.TrafficLog, int64, error)
+	QuerySubscribeTrafficSummary(ctx context.Context, scope traffic.SubscribeTrafficScope) (*traffic.TotalTraffic, error)
+	QuerySubscribeHourlyTraffic(ctx context.Context, scope traffic.SubscribeTrafficScope) ([]traffic.HourlyTraffic, error)
+	QuerySubscribeServerRanking(ctx context.Context, scope traffic.SubscribeTrafficScope) ([]traffic.ServerTrafficRanking, error)
 	DeleteBefore(ctx context.Context, end time.Time) error
 	DeleteBeforeBatch(ctx context.Context, end time.Time, limit int) (int64, error)
 }

@@ -231,6 +231,47 @@ func (m *trafficRepo) QueryTrafficLogDetails(ctx context.Context, filter *traffi
 	return list, total, err
 }
 
+func (m *trafficRepo) QuerySubscribeTrafficSummary(ctx context.Context, scope traffic.SubscribeTrafficScope) (*traffic.TotalTraffic, error) {
+	var total traffic.TotalTraffic
+	err := m.subscribeScopedQuery(ctx, scope).
+		Select(totalTrafficSelect(m.Conn)).
+		Scan(&total).Error
+	return &total, err
+}
+
+func (m *trafficRepo) QuerySubscribeHourlyTraffic(ctx context.Context, scope traffic.SubscribeTrafficScope) ([]traffic.HourlyTraffic, error) {
+	hour := trafficHourExpr(m.Conn)
+	var buckets []traffic.HourlyTraffic
+	err := m.subscribeScopedQuery(ctx, scope).
+		Select(hour + " AS hour, " + totalTrafficSelect(m.Conn)).
+		Group(hour).
+		Order("hour ASC").
+		Scan(&buckets).Error
+	return buckets, err
+}
+
+func (m *trafficRepo) QuerySubscribeServerRanking(ctx context.Context, scope traffic.SubscribeTrafficScope) ([]traffic.ServerTrafficRanking, error) {
+	var summaries []traffic.ServerTrafficRanking
+	err := m.subscribeScopedQuery(ctx, scope).
+		Select(serverTrafficRankingSelect(m.Conn)).
+		Group(trafficColumn(m.Conn, "server_id")).
+		Order("total DESC").
+		Scan(&summaries).Error
+	return summaries, err
+}
+
+// subscribeScopedQuery always constrains user_id as well as subscribe_id, so a
+// mismatched pair returns nothing rather than another user's rows.
+func (m *trafficRepo) subscribeScopedQuery(ctx context.Context, scope traffic.SubscribeTrafficScope) *gorm.DB {
+	query := m.Conn.WithContext(ctx).Model(&traffic.TrafficLog{}).
+		Where(trafficColumn(m.Conn, "user_id")+" = ?", scope.UserId).
+		Where(trafficColumn(m.Conn, "subscribe_id")+" = ?", scope.SubscribeId)
+	if !scope.Start.IsZero() && !scope.End.IsZero() {
+		query = query.Where(trafficTimeRangeCondition(m.Conn), scope.Start, scope.End)
+	}
+	return query
+}
+
 func (m *trafficRepo) DeleteBefore(ctx context.Context, end time.Time) error {
 	return m.Conn.WithContext(ctx).Model(&traffic.TrafficLog{}).Where(trafficColumn(m.Conn, "timestamp")+" <= ?", end).Delete(&traffic.TrafficLog{}).Error
 }
@@ -302,6 +343,18 @@ func trafficSumIntExpr(db *gorm.DB, expr, alias string) string {
 		return fmt.Sprintf("COALESCE(SUM(%s), 0)::bigint AS %s", expr, alias)
 	}
 	return fmt.Sprintf("COALESCE(SUM(%s), 0) AS %s", expr, alias)
+}
+
+// trafficHourExpr groups on the stored wall-clock hour as a string. Doing the
+// truncation with epoch arithmetic instead would disagree across dialects:
+// Postgres reads a bare timestamp as UTC while MySQL's UNIX_TIMESTAMP applies
+// the session time zone, shifting bucket labels by the offset.
+func trafficHourExpr(db *gorm.DB) string {
+	column := trafficColumn(db, "timestamp")
+	if db != nil && db.Dialector.Name() == orm.DriverPostgres {
+		return fmt.Sprintf("to_char(%s, 'YYYY-MM-DD HH24')", column)
+	}
+	return fmt.Sprintf("DATE_FORMAT(%s, '%%Y-%%m-%%d %%H')", column)
 }
 
 func trafficColumn(db *gorm.DB, column string) string {

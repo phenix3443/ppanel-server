@@ -110,6 +110,8 @@ GET /v1/public/user/login_log github.com/perfect-panel/server/internal/module/id
 GET /v1/public/user/oauth_methods github.com/perfect-panel/server/internal/module/identity/transport/http/public/user.GetOAuthMethodsHandler
 GET /v1/public/user/subscribe github.com/perfect-panel/server/internal/module/subscription/transport/http/public/user.QueryUserSubscribeHandler
 GET /v1/public/user/subscribe_log github.com/perfect-panel/server/internal/module/subscription/transport/http/public/user.GetSubscribeLogHandler
+GET /v1/public/user/traffic/details github.com/perfect-panel/server/internal/module/subscription/transport/http/public/user.GetSubscribeTrafficDetailsHandler
+GET /v1/public/user/traffic/overview github.com/perfect-panel/server/internal/module/subscription/transport/http/public/user.GetSubscribeTrafficOverviewHandler
 GET /v1/public/user/withdrawal_log github.com/perfect-panel/server/internal/module/billing/transport/http/public/user.QueryWithdrawalLogHandler
 GET /v2/server/:server_id github.com/perfect-panel/server/internal/module/network/transport/http/server.QueryServerProtocolConfigHandler
 GET /v2/public/orders/:orderNo github.com/perfect-panel/server/internal/module/billing/transport/http/public/order.V2GetOrderHandler

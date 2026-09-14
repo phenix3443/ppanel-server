@@ -10468,6 +10468,131 @@
                 }
             }
         },
+        "/v1/public/user/traffic/details": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get Subscribe Traffic Details",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "name": "end",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "name": "size",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Start/End are unix milliseconds. Both empty means the last 24 hours.",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "name": "user_subscribe_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/result.ResponseSuccessBean"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.GetSubscribeTrafficDetailsResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/public/user/traffic/overview": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "user"
+                ],
+                "summary": "Get Subscribe Traffic Overview",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "name": "user_subscribe_id",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "24h",
+                            "7d",
+                            "30d"
+                        ],
+                        "type": "string",
+                        "name": "window",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/result.ResponseSuccessBean"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/dto.GetSubscribeTrafficOverviewResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/v1/public/user/unbind_device": {
             "put": {
                 "security": [
@@ -13652,6 +13777,57 @@
                 },
                 "total": {
                     "type": "integer"
+                }
+            }
+        },
+        "dto.GetSubscribeTrafficDetailsResponse": {
+            "type": "object",
+            "properties": {
+                "list": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.TrafficDetailItem"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dto.GetSubscribeTrafficOverviewResponse": {
+            "type": "object",
+            "properties": {
+                "download": {
+                    "type": "integer"
+                },
+                "end": {
+                    "type": "integer"
+                },
+                "interval": {
+                    "description": "Interval is \"hour\" or \"day\" and tells the client how to label buckets.",
+                    "type": "string"
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.TrafficNodeUsageItem"
+                    }
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/dto.TrafficSeriesPoint"
+                    }
+                },
+                "start": {
+                    "type": "integer"
+                },
+                "upload": {
+                    "type": "integer"
+                },
+                "window": {
+                    "description": "Window echoes the resolved window, Start/End the range actually queried\n(unix milliseconds), so the client never has to recompute them.",
+                    "type": "string"
                 }
             }
         },
@@ -17072,6 +17248,27 @@
                 }
             }
         },
+        "dto.TrafficDetailItem": {
+            "type": "object",
+            "properties": {
+                "download": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "server_id": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "description": "Timestamp is the minute bucket the node reported, in unix milliseconds.",
+                    "type": "integer"
+                },
+                "upload": {
+                    "type": "integer"
+                }
+            }
+        },
         "dto.TrafficLog": {
             "type": "object",
             "properties": {
@@ -17120,6 +17317,41 @@
                     "type": "integer"
                 },
                 "user_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dto.TrafficNodeUsageItem": {
+            "type": "object",
+            "properties": {
+                "download": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "server_id": {
+                    "type": "integer"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "upload": {
+                    "type": "integer"
+                }
+            }
+        },
+        "dto.TrafficSeriesPoint": {
+            "type": "object",
+            "properties": {
+                "download": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "description": "Timestamp is the bucket start in unix milliseconds.",
+                    "type": "integer"
+                },
+                "upload": {
                     "type": "integer"
                 }
             }
