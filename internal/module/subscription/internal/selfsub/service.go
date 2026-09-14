@@ -17,10 +17,14 @@ type Deps struct {
 	// identity, billing and platform domains.
 	Users  repository.UserRepo
 	Orders repository.OrderRepo
-	Cache  repository.UserCacheRepo
-	Logs   repository.LogRepo
-	Inbox  repository.InboxRepo
-	Store  Store
+	// Traffic/Nodes are read ports onto the network domain, for the usage
+	// views on a user's own subscription.
+	Traffic repository.TrafficRepo
+	Nodes   repository.NodeRepo
+	Cache   repository.UserCacheRepo
+	Logs    repository.LogRepo
+	Inbox   repository.InboxRepo
+	Store   Store
 	// SingleModel forbids holding more than one blocking subscription;
 	// runtime-mutable, read per request.
 	SingleModel func() bool
@@ -48,6 +52,14 @@ func (s *Service) GetSubscribeLog(ctx context.Context, req *dto.GetSubscribeLogR
 
 func (s *Service) UpdateUserSubscribeNote(ctx context.Context, req *dto.UpdateUserSubscribeNoteRequest) error {
 	return newUpdateUserSubscribeNoteLogic(ctx, s.deps).UpdateUserSubscribeNote(req)
+}
+
+func (s *Service) GetSubscribeTrafficOverview(ctx context.Context, req *dto.GetSubscribeTrafficOverviewRequest) (*dto.GetSubscribeTrafficOverviewResponse, error) {
+	return newGetSubscribeTrafficLogic(ctx, s.deps).Overview(req)
+}
+
+func (s *Service) GetSubscribeTrafficDetails(ctx context.Context, req *dto.GetSubscribeTrafficDetailsRequest) (*dto.GetSubscribeTrafficDetailsResponse, error) {
+	return newGetSubscribeTrafficLogic(ctx, s.deps).Details(req)
 }
 
 func (s *Service) PreUnsubscribe(ctx context.Context, req *dto.PreUnsubscribeRequest) (*dto.PreUnsubscribeResponse, error) {

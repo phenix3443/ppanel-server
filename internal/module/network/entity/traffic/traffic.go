@@ -53,3 +53,23 @@ type TrafficLogDetailsFilter struct {
 	Page        int
 	Size        int
 }
+
+// SubscribeTrafficScope narrows a traffic query to one user's own subscription.
+// UserId is always applied alongside SubscribeId: a caller-supplied id that
+// belongs to somebody else then matches nothing instead of leaking rows.
+type SubscribeTrafficScope struct {
+	UserId      int64
+	SubscribeId int64
+	Start       time.Time
+	End         time.Time
+}
+
+// HourlyTraffic is one hour of a subscription's usage. Hour is the wall-clock
+// key "2006-01-02 15" produced by the database, not an instant: the grouping is
+// done on the stored local wall-clock so MySQL and Postgres agree. Callers turn
+// it into a time.Time with timeutil.Location().
+type HourlyTraffic struct {
+	Hour     string
+	Download int64
+	Upload   int64
+}

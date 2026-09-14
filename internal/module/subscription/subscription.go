@@ -80,6 +80,10 @@ type Service interface {
 	// subscription is enforced against the request context.
 	ResetOwnSubscribeToken(ctx context.Context, req *dto.ResetUserSubscribeTokenRequest) error
 	GetSubscribeLog(ctx context.Context, req *dto.GetSubscribeLogRequest) (*dto.GetSubscribeLogResponse, error)
+	// GetSubscribeTrafficOverview and GetSubscribeTrafficDetails read the
+	// caller's own usage; both refuse a subscription owned by anybody else.
+	GetSubscribeTrafficOverview(ctx context.Context, req *dto.GetSubscribeTrafficOverviewRequest) (*dto.GetSubscribeTrafficOverviewResponse, error)
+	GetSubscribeTrafficDetails(ctx context.Context, req *dto.GetSubscribeTrafficDetailsRequest) (*dto.GetSubscribeTrafficDetailsResponse, error)
 	UpdateUserSubscribeNote(ctx context.Context, req *dto.UpdateUserSubscribeNoteRequest) error
 	PreUnsubscribe(ctx context.Context, req *dto.PreUnsubscribeRequest) (*dto.PreUnsubscribeResponse, error)
 	// Unsubscribe cancels in a subscription transaction and settles the
@@ -220,6 +224,8 @@ func New(deps Deps) Service {
 			Plans:       deps.Plans,
 			Users:       deps.Users,
 			Orders:      deps.Orders,
+			Traffic:     deps.Traffic,
+			Nodes:       deps.Nodes,
 			Cache:       deps.Cache,
 			Logs:        deps.Logs,
 			Inbox:       deps.Inbox,
@@ -390,6 +396,14 @@ func (s *service) ResetOwnSubscribeToken(ctx context.Context, req *dto.ResetUser
 
 func (s *service) GetSubscribeLog(ctx context.Context, req *dto.GetSubscribeLogRequest) (*dto.GetSubscribeLogResponse, error) {
 	return s.selfSubs.GetSubscribeLog(ctx, req)
+}
+
+func (s *service) GetSubscribeTrafficOverview(ctx context.Context, req *dto.GetSubscribeTrafficOverviewRequest) (*dto.GetSubscribeTrafficOverviewResponse, error) {
+	return s.selfSubs.GetSubscribeTrafficOverview(ctx, req)
+}
+
+func (s *service) GetSubscribeTrafficDetails(ctx context.Context, req *dto.GetSubscribeTrafficDetailsRequest) (*dto.GetSubscribeTrafficDetailsResponse, error) {
+	return s.selfSubs.GetSubscribeTrafficDetails(ctx, req)
 }
 
 func (s *service) UpdateUserSubscribeNote(ctx context.Context, req *dto.UpdateUserSubscribeNoteRequest) error {
