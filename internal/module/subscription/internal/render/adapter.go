@@ -20,6 +20,20 @@ type Adapter struct {
 
 type Option func(*Adapter)
 
+// defaultRealityFingerprint 是 REALITY 节点没配指纹时下发的默认值。
+//
+// 【不能省】REALITY 客户端都建在 uTLS 上，没有指纹就不发请求：mihomo 本地报
+// `REALITY is based on uTLS, please set a client-fingerprint`。mihomo 1.19.30 删掉了
+// 顶层 global-client-fingerprint，模板里写全局默认已经兜不住，只能在节点上带。
+const defaultRealityFingerprint = "chrome"
+
+func clientFingerprint(security, fingerprint string) string {
+	if fingerprint == "" && security == "reality" {
+		return defaultRealityFingerprint
+	}
+	return fingerprint
+}
+
 func WithParams(params map[string]string) Option {
 	return func(opts *Adapter) {
 		opts.Params = params
@@ -132,7 +146,7 @@ func (adapter *Adapter) Proxies(servers []*node.Node) ([]Proxy, error) {
 						SNI:                     protocol.SNI,
 						ALPN:                    protocol.ALPN,
 						AllowInsecure:           allowInsecure,
-						Fingerprint:             protocol.Fingerprint,
+						Fingerprint:             clientFingerprint(protocol.Security, protocol.Fingerprint),
 						RealityServerAddr:       protocol.RealityServerAddr,
 						RealityServerPort:       protocol.RealityServerPort,
 						RealityPublicKey:        protocol.RealityPublicKey,
