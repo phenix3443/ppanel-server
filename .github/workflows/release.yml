@@ -58,8 +58,10 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
+          # 不传 CHANNEL 就是 Dockerfile 默认的 dev，正式 release 会自报 Develop
           build-args: |
             VERSION=${{ env.VERSION }}
+            CHANNEL=stable
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.GIT_SHA }}
@@ -74,6 +76,7 @@ jobs:
           push: true
           build-args: |
             VERSION=${{ env.VERSION }}
+            CHANNEL=beta
           tags: |
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:beta
             ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}-${{ env.GIT_SHA }}
@@ -137,7 +140,8 @@ jobs:
           project_path: "."
           binary_name: "ppanel-server"
           extra_files: LICENSE etc
-          ldflags: -X "github.com/perfect-panel/server/pkg/constant.Version=${{env.VERSION}}" -X "github.com/perfect-panel/server/pkg/constant.BuildTime=${{env.BUILD_TIME}}"
+          # -X 指向不存在的包不会报错，只会静默不生效——改包路径时这里要跟着改
+          ldflags: -X "github.com/perfect-panel/server/internal/app/buildinfo.Version=${{env.VERSION}}" -X "github.com/perfect-panel/server/internal/app/buildinfo.BuildTime=${{env.BUILD_TIME}}" -X "github.com/perfect-panel/server/internal/app/buildinfo.Channel=${{ contains(github.ref_name, 'beta') && 'beta' || 'stable' }}"
 
   trigger-ppanel-image:
     name: Trigger ppanel image build
