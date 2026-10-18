@@ -3,12 +3,35 @@ package httpserver
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	appconfig "github.com/perfect-panel/server/internal/config"
 	"github.com/perfect-panel/server/internal/module/platform"
 	"github.com/perfect-panel/server/internal/transport/http/routes"
 )
+
+func TestRequestMetricsExposeServerErrorCount(t *testing.T) {
+	server := newTestServer("secret")
+	server.Engine().GET("/metrics-test", func(_ context.Context, ctx *app.RequestContext) {
+		ctx.SetStatusCode(http.StatusServiceUnavailable)
+	})
+	status, _ := performNativeRequest(server, http.MethodGet, "/metrics-test")
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("expected request status 503, got %d", status)
+	}
+
+	response := httptest.NewRecorder()
+	server.MetricsHandler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected metrics status 200, got %d", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), `ppanel_http_server_requests_total{method="GET",status="503"} 1`) {
+		t.Fatalf("server error count missing from metrics: %s", response.Body.String())
+	}
+}
 
 func TestServerSecretMiddlewareBlocksMigratedPost(t *testing.T) {
 	app := newTestServer("secret")
