@@ -83,6 +83,11 @@ func (s *Service) Create(ctx context.Context, req *dto.CreatePaymentMethodReques
 		Enable:      req.Enable,
 		Token:       random.KeyNew(8, 1),
 	}
+	if payment.ParsePlatform(req.Platform) == payment.Waffo {
+		if method.Config, err = s.syncWaffoWebhook(ctx, method, ""); err != nil {
+			return nil, err
+		}
+	}
 	if payment.ParsePlatform(req.Platform) == payment.Stripe {
 		if err := s.createStripeMethod(ctx, method); err != nil {
 			return nil, err
@@ -244,8 +249,25 @@ func (s *Service) Update(ctx context.Context, req *dto.UpdatePaymentMethodReques
 		if config, err = s.deps.Gateways.NormalizeConfig(req.Platform, req.Config); err != nil {
 			return nil, xerr.Wrapf(err, xerr.InvalidPaymentConfig, "invalid payment config")
 		}
+		if payment.ParsePlatform(req.Platform) == payment.Waffo {
+			// The form never carries the gateway-assigned webhook id; carry
+			// it over first, or every save would compare as changed and be
+			// refused while the method has pending orders.
+			if config, err = gateway.WithWaffoWebhookID(config, method.Config); err != nil {
+				return nil, xerr.Wrapf(err, xerr.InvalidPaymentConfig, "invalid payment config")
+			}
+		}
 		if method.Config != config || method.Domain != req.Domain {
 			if err := s.ensureNoPendingOrders(ctx, method.Id); err != nil {
+				return nil, err
+			}
+		}
+		if payment.ParsePlatform(req.Platform) == payment.Waffo {
+			// The store's webhook follows the method's callback URL, which
+			// the domain decides; updating an existing endpoint is idempotent.
+			pending := *method
+			pending.Config, pending.Domain = config, req.Domain
+			if config, err = s.syncWaffoWebhook(ctx, &pending, method.Config); err != nil {
 				return nil, err
 			}
 		}
@@ -275,6 +297,21 @@ func (s *Service) Update(ctx context.Context, req *dto.UpdatePaymentMethodReques
 	}
 	s.retireOldEndpoint(ctx, stripe)
 	return paymentConfigResponse(method), nil
+}
+
+// syncWaffoWebhook registers, or updates, the Waffo store's webhook for the
+// method's callback URL and returns the configuration to store with the
+// gateway's webhook id in it. stored is the configuration before the change.
+func (s *Service) syncWaffoWebhook(ctx context.Context, method *paymentModel.Payment, stored string) (string, error) {
+	notifyURL, err := gateway.NotifyURL(method, s.siteHost())
+	if err != nil {
+		return "", err
+	}
+	config, err := s.deps.Gateways.SyncWaffoWebhook(ctx, method.Config, stored, notifyURL)
+	if err != nil {
+		return "", xerr.Wrapf(err, xerr.ERROR, "register waffo webhook")
+	}
+	return config, nil
 }
 
 func (s *Service) Delete(ctx context.Context, req *dto.DeletePaymentMethodRequest) error {
