@@ -6,6 +6,7 @@
 package nodeversion
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -137,7 +138,7 @@ func fetchReleases() ([]Release, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var releases []struct {
 		TagName     string `json:"tag_name"`
 		Prerelease  bool   `json:"prerelease"`
@@ -168,7 +169,7 @@ func Repo() string {
 
 func githubGet(path string) (*http.Response, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/"+Repo()+path, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", "https://api.github.com/repos/"+Repo()+path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +182,7 @@ func githubGet(path string) (*http.Response, error) {
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, &statusError{resp.Status}
 	}
 	return resp, nil
@@ -192,7 +193,7 @@ func fetchLatest() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var release struct {
 		TagName string `json:"tag_name"`
 	}

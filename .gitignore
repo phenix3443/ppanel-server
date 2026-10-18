@@ -34,3 +34,4 @@ BRANCH_STRATEGY.md
 # Plugin WASM binaries (built elsewhere)
 plugins/**/*.wasm
 !plugins/**/.gitkeep
+.tools/

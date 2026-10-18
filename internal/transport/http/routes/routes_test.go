@@ -62,7 +62,7 @@ func TestRegisterHandlers_routeInventory(t *testing.T) {
 	}
 
 	// Then
-	if len(routes) != 251 {
+	if len(routes) != 255 {
 		t.Fatalf("expected 251 routes, got %d", len(routes))
 	}
 	if !bytes.Equal([]byte(actual.String()), expected) {
@@ -186,7 +186,7 @@ func TestRegisterHandlers_configuredRoutes(t *testing.T) {
 	}{
 		{
 			name:           "empty-fallback",
-			wantRouteCount: 251,
+			wantRouteCount: 255,
 			present:        []string{"/v1/subscribe/config"},
 			absent:         []string{"/"},
 		},
@@ -195,7 +195,7 @@ func TestRegisterHandlers_configuredRoutes(t *testing.T) {
 			subscribe: appconfig.SubscribeConfig{
 				SubscribePath: "/custom/subscribe",
 			},
-			wantRouteCount: 251,
+			wantRouteCount: 255,
 			present:        []string{"/custom/subscribe"},
 			absent:         []string{"/v1/subscribe/config", "/"},
 		},
@@ -204,7 +204,7 @@ func TestRegisterHandlers_configuredRoutes(t *testing.T) {
 			subscribe: appconfig.SubscribeConfig{
 				PanDomain: false,
 			},
-			wantRouteCount: 251,
+			wantRouteCount: 255,
 			present:        []string{"/v1/subscribe/config"},
 			absent:         []string{"/"},
 		},
@@ -213,12 +213,12 @@ func TestRegisterHandlers_configuredRoutes(t *testing.T) {
 			subscribe: appconfig.SubscribeConfig{
 				PanDomain: true,
 			},
-			wantRouteCount: 252,
+			wantRouteCount: 256,
 			present:        []string{"/v1/subscribe/config", "/"},
 		},
 		{
 			name:           "edge-manifest-enabled",
-			wantRouteCount: 252,
+			wantRouteCount: 256,
 			present:        []string{"/v1/subscribe/config", "/api/edge/v1/manifest"},
 		},
 	}

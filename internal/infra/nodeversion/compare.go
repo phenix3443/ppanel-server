@@ -17,7 +17,7 @@ var semverPattern = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)`)
 func Compare(a, b string) (int, bool) {
 	x, okA := parseSemver(a)
 	y, okB := parseSemver(b)
-	if !(okA && okB) {
+	if !okA || !okB {
 		return 0, false
 	}
 	for i := range x {
