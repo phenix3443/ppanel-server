@@ -45,14 +45,14 @@ func dialDevice(t *testing.T, srv *httptest.Server) *websocket.Conn {
 // 而服务端的 AddDevice 还在注册途中。紧接着用同一个 device ID 再 dial，
 // 两次注册的先后是竞态：后注册的那条会把先注册的踢掉——如果旧连接反而
 // 后注册，被踢掉的就是新连接，表现为新连接收不到推送（close 1006）。
-func waitOnline(t *testing.T, dm *DeviceManager, want int32) {
+func waitOnline(t *testing.T, dm *DeviceManager) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
-	for int32(dm.Online()) != want && time.Now().Before(deadline) {
+	for dm.Online() != 1 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	if got := int32(dm.Online()); got != want {
-		t.Fatalf("Online() = %d, want %d", got, want)
+	if got := dm.Online(); got != 1 {
+		t.Fatalf("Online() = %d, want the dialled device registered", got)
 	}
 }
 
@@ -67,7 +67,7 @@ func TestConcurrentHeartbeatAndPushWrites(t *testing.T) {
 	const userID = int64(7)
 	srv := deviceTestServer(t, dm, userID, 5)
 	conn := dialDevice(t, srv)
-	waitOnline(t, dm, 1)
+	waitOnline(t, dm)
 
 	var received atomic.Int64
 	closed := make(chan struct{})
@@ -160,7 +160,7 @@ func TestKickDeliversNotificationThenCloses(t *testing.T) {
 
 	srv := deviceTestServer(t, dm, userID, 5)
 	conn := dialDevice(t, srv)
-	waitOnline(t, dm, 1)
+	waitOnline(t, dm)
 
 	dm.KickDevice(userID, testDeviceID)
 
@@ -203,7 +203,7 @@ func TestReconnectReplacesPreviousSocket(t *testing.T) {
 	const userID = int64(11)
 	srv := deviceTestServer(t, dm, userID, 5)
 	oldConn := dialDevice(t, srv)
-	waitOnline(t, dm, 1)
+	waitOnline(t, dm)
 	newConn := dialDevice(t, srv)
 
 	if err := oldConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -269,7 +269,7 @@ func TestHeartbeatSweepKeepsADeviceConnectedWhileItWaited(t *testing.T) {
 	const userID = int64(13)
 	srv := deviceTestServer(t, dm, userID, 2)
 	conn := dialDevice(t, srv)
-	waitOnline(t, dm, 1)
+	waitOnline(t, dm)
 	t.Cleanup(func() { _ = conn.Close() })
 
 	// The sweep starts while the test holds the user's lock: it has taken
