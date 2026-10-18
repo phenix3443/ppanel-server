@@ -70,7 +70,7 @@ WORKDIR /app
 USER 65532:65532
 
 # Expose the port (optional)
-EXPOSE 8080
+EXPOSE 8080 9091
 
 # The server's own health probe: it asks the running server over the local
 # listener and exits non-zero when it gets no healthy answer, so the

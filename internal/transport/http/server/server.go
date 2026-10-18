@@ -8,6 +8,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
+	"net/http"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -22,10 +25,14 @@ import (
 	"github.com/perfect-panel/server/internal/transport/http/routes"
 	"github.com/perfect-panel/server/pkg/logger"
 	"github.com/perfect-panel/server/pkg/requestmeta"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type Server struct {
-	h *server.Hertz
+	h             *server.Hertz
+	metricsServer *http.Server
+	metrics       http.Handler
 	// shuttingDown records that Shutdown was called, so Start tells the
 	// listener closing on purpose from one that failed.
 	shuttingDown atomic.Bool
@@ -82,6 +89,13 @@ func listenerOptions(cfg config.HTTPConfig) []hertzconfig.Option {
 }
 
 func newServer(deps Dependencies, opts []hertzconfig.Option) *Server {
+	registry := prometheus.NewRegistry()
+	requestCount := prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "ppanel_http_server_requests_total",
+		Help: "Total HTTP requests handled by PPanel, by method and response status.",
+	}, []string{"method", "status"})
+	registry.MustRegister(requestCount)
+
 	engine := server.Default(opts...)
 	// The client address every middleware and handler reads (rate limits,
 	// audit logs, device records) believes a forwarding header only from a
@@ -98,13 +112,25 @@ func newServer(deps Dependencies, opts []hertzconfig.Option) *Server {
 	engine.Use(func(c context.Context, ctx *app.RequestContext) {
 		ctx.SetClientIPFunc(resolveClientIP)
 		ctx.Next(c)
-	}, middleware.TraceMiddleware(), middleware.LoggerMiddleware(deps.RequestMetadata), middleware.NewCorsMiddleware(deps.AllowedOrigins))
+	}, middleware.TraceMiddleware(), func(c context.Context, ctx *app.RequestContext) {
+		ctx.Next(c)
+		status := ctx.Response.StatusCode()
+		if status == 0 {
+			status = http.StatusOK
+		}
+		requestCount.WithLabelValues(string(ctx.Method()), strconv.Itoa(status)).Inc()
+	}, middleware.LoggerMiddleware(deps.RequestMetadata), middleware.NewCorsMiddleware(deps.AllowedOrigins))
 
 	routes.RegisterHandlers(engine, deps.Routes)
 	notificationHTTP.RegisterTelegramHandlers(engine, deps.Notification, deps.TelegramBotToken)
 	billingHTTP.RegisterNotifyHandlers(engine, deps.Routes.Billing)
 
-	return &Server{h: engine}
+	metrics := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
+	return &Server{h: engine, metrics: metrics, metricsServer: &http.Server{
+		Addr:              ":9091",
+		Handler:           metrics,
+		ReadHeaderTimeout: 5 * time.Second,
+	}}
 }
 
 // Start serves until Shutdown and returns the error that stopped the server
@@ -112,6 +138,20 @@ func newServer(deps Dependencies, opts []hertzconfig.Option) *Server {
 // error only, leaving a process that consumed tasks with no API to serve
 // them; the caller decides now, and fails fast.
 func (s *Server) Start() (err error) {
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", s.metricsServer.Addr)
+	if err != nil {
+		return fmt.Errorf("metrics server: %w", err)
+	}
+	go func() {
+		if err := s.metricsServer.Serve(listener); err != nil && err != http.ErrServerClosed {
+			logger.Errorf("metrics server error: %s", err.Error())
+		}
+	}()
+	defer func() {
+		if err := s.metricsServer.Shutdown(context.Background()); err != nil {
+			logger.Errorf("metrics server shutdown error: %s", err.Error())
+		}
+	}()
 	// Hertz's netpoll transport panics instead of returning the error when
 	// the listener cannot bind; the standard transport returns it. Both
 	// reach the caller as the error.
@@ -134,7 +174,15 @@ func (s *Server) Start() (err error) {
 // until ctx ends; Start returns nil afterwards.
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.shuttingDown.Store(true)
-	return s.h.Shutdown(ctx)
+	metricsErr := s.metricsServer.Shutdown(ctx)
+	if err := s.h.Shutdown(ctx); err != nil {
+		return err
+	}
+	return metricsErr
+}
+
+func (s *Server) MetricsHandler() http.Handler {
+	return s.metrics
 }
 
 func (s *Server) Engine() *server.Hertz {

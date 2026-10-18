@@ -45,6 +45,8 @@ proxy services. Built with Go, it emphasizes performance, security, and scalabil
 - **Node Management**: Monitor and control server nodes.
 - **API Framework**: Comprehensive RESTful APIs for frontend integration.
 
+PPanel exports `ppanel_http_server_requests_total` by request method and response status at `:9091/metrics`. The metrics listener is separate from the public API; expose it only to the cluster's Prometheus scraper.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
