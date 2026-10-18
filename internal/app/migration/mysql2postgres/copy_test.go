@@ -83,6 +83,10 @@ func TestMigrateCopiesRowsIntoPostgres(t *testing.T) {
 	t.Cleanup(func() { _, _ = mysqlDB.ExecContext(ctx, "DROP TABLE IF EXISTS "+quoteMySQLIdent(table)) })
 	exec(postgresDB, "CREATE TABLE public."+quotePGIdent(table)+" (id bigint PRIMARY KEY, note text, flag boolean NOT NULL, amount numeric(10,2) NOT NULL, at timestamp(3))")
 	t.Cleanup(func() { _, _ = postgresDB.ExecContext(ctx, "DROP TABLE IF EXISTS public."+quotePGIdent(table)) })
+	unrelated := fmt.Sprintf("m2p_unrelated_%d", time.Now().UnixNano())
+	exec(postgresDB, "CREATE TABLE public."+quotePGIdent(unrelated)+" (id bigserial PRIMARY KEY)")
+	t.Cleanup(func() { _, _ = postgresDB.ExecContext(ctx, "DROP TABLE IF EXISTS public."+quotePGIdent(unrelated)) })
+	exec(postgresDB, "INSERT INTO public."+quotePGIdent(unrelated)+" (id) VALUES (7)")
 
 	at := time.Date(2026, 9, 28, 10, 30, 0, 123000000, time.UTC)
 	notes := []any{"tab\tnew\nline \\ backslash", nil, "plain"}
@@ -96,6 +100,13 @@ func TestMigrateCopiesRowsIntoPostgres(t *testing.T) {
 
 	if err := Migrate(ctx, Config{MySQLDSN: mysqlDSN, PostgresDSN: postgresDSN, Schema: "public", Tables: table, BatchSize: 2, Location: "UTC"}); err != nil {
 		t.Fatalf("Migrate: %v", err)
+	}
+	var nextUnrelatedID int64
+	if err := postgresDB.QueryRowContext(ctx, "SELECT nextval(pg_get_serial_sequence($1, 'id'))", "public."+unrelated).Scan(&nextUnrelatedID); err != nil {
+		t.Fatal(err)
+	}
+	if nextUnrelatedID != 1 {
+		t.Errorf("unrelated table sequence advanced to %d, want 1", nextUnrelatedID)
 	}
 
 	rows, err := postgresDB.QueryContext(ctx, "SELECT id, note, flag, amount::text, at FROM public."+quotePGIdent(table)+" ORDER BY id")

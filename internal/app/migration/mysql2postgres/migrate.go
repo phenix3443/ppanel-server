@@ -153,7 +153,7 @@ func Migrate(ctx context.Context, cfg Config) error {
 		}
 	}
 
-	if err := resetSequences(ctx, postgresDB, cfg.Schema); err != nil {
+	if err := resetSequences(ctx, postgresDB, cfg.Schema, plans); err != nil {
 		return err
 	}
 	log.Printf("migration completed")
@@ -866,7 +866,11 @@ func parseTimestamp(value string, location *time.Location) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unsupported timestamp %q", value)
 }
 
-func resetSequences(ctx context.Context, db *sql.DB, schema string) (err error) {
+func resetSequences(ctx context.Context, db *sql.DB, schema string, plans []tablePlan) (err error) {
+	selected := make(map[string]struct{}, len(plans))
+	for _, plan := range plans {
+		selected[plan.Name] = struct{}{}
+	}
 	rows, err := db.QueryContext(ctx, //nolint:sqlclosecheck // closed by closeRows, which folds the close error into err
 		`
 SELECT table_name, column_name
@@ -888,6 +892,9 @@ ORDER BY table_name, ordinal_position`, schema)
 		var item sequenceColumn
 		if err := rows.Scan(&item.table, &item.column); err != nil {
 			return err
+		}
+		if _, ok := selected[item.table]; !ok {
+			continue
 		}
 		columns = append(columns, item)
 	}
