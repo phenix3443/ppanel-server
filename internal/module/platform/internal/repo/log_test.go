@@ -111,3 +111,45 @@ func logTypes(rows []logEntity.SystemLog) []uint8 {
 	}
 	return result
 }
+
+func TestFilterSystemLogDateRanges(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&logEntity.SystemLog{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, date := range []string{"2025-12-31", "2026-01-01", "2026-01-02", "2026-02-01"} {
+		if err := db.Create(&logEntity.SystemLog{Type: 30, Date: date, Content: `{}`}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name, date, start, end string
+		want                   int64
+	}{
+		{"unfiltered", "", "", "", 4},
+		{"legacy", "2026-01-01", "", "", 1},
+		{"inclusive across year", "", "2025-12-31", "2026-01-01", 2},
+		{"same day", "", "2026-01-01", "2026-01-01", 1},
+		{"start only overrides legacy", "2025-12-31", "2026-01-01", "", 3},
+		{"end only overrides legacy", "2026-02-01", "", "2026-01-01", 2},
+		{"range overrides legacy", "2026-02-01", "2026-01-01", "2026-01-02", 2},
+		{"reversed", "", "2026-02-01", "2026-01-01", 0},
+		{"empty", "", "2027-01-01", "", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := &logEntity.FilterParams{Page: 1, Size: 1, Type: 30, Data: tc.date, StartDate: tc.start, EndDate: tc.end}
+			rows, total, err := NewLogRepo(db).FilterSystemLog(context.Background(), filter)
+			if err != nil || total != tc.want || len(rows) != min(1, int(tc.want)) {
+				t.Fatalf("rows=%v total=%d err=%v", rows, total, err)
+			}
+			filter.Page = int(tc.want) + 1
+			rows, total, err = NewLogRepo(db).FilterSystemLog(context.Background(), filter)
+			if err != nil || total != tc.want || len(rows) != 0 {
+				t.Fatalf("empty page: rows=%v total=%d err=%v", rows, total, err)
+			}
+		})
+	}
+}

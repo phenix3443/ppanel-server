@@ -3,6 +3,7 @@ package nodeversion
 import (
 	"errors"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -58,15 +59,16 @@ func TestCacheReturnsEmptyWhenUpstreamUnavailable(t *testing.T) {
 
 // 上游短暂不可用时沿用上次的好值，比突然显示「未知」有用。
 func TestCacheKeepsLastGoodValue(t *testing.T) {
-	var fail bool
+	// fail 被后台 refresh goroutine 读、被测试主 goroutine 写，用 atomic 同步。
+	var fail atomic.Bool
 	c := &Cache{TTL: time.Nanosecond, fetch: func() (string, error) {
-		if fail {
+		if fail.Load() {
 			return "", errors.New("boom")
 		}
 		return "v1.1.14", nil
 	}}
 	waitFor(t, c, "v1.1.14")
-	fail = true
+	fail.Store(true)
 	time.Sleep(20 * time.Millisecond)
 	if got := c.Latest(); got != "v1.1.14" {
 		t.Fatalf("应沿用上次的好值，得到 %q", got)

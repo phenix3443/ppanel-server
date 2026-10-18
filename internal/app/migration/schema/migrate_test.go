@@ -3,13 +3,18 @@ package schema
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 
+	mysqldriver "github.com/go-sql-driver/mysql"
+	"github.com/golang-migrate/migrate/v4/database"
+	"github.com/perfect-panel/server/pkg/logger/logtest"
 	"github.com/perfect-panel/server/pkg/orm"
 )
 
@@ -46,13 +51,115 @@ func runMigration(t *testing.T, driver, dsn string) {
 	}
 	sqlDB, err := db.DB()
 	if err == nil {
-		defer sqlDB.Close()
+		t.Cleanup(func() {
+			if err := sqlDB.Close(); err != nil {
+				t.Errorf("%s close failed: %v", driver, err)
+			}
+		})
 	}
 	if err := CreateAdminUser(fmt.Sprintf("admin-%s@example.com", driver), "password", db); err != nil {
 		t.Fatalf("%s create admin failed: %v", driver, err)
 	}
 	if err := CreateAdminUser("", "password", db); err != nil {
 		t.Fatalf("%s existing admin must skip email validation: %v", driver, err)
+	}
+}
+
+func TestPostgresMigrationURLUsesThePgxDriver(t *testing.T) {
+	cases := map[string]string{
+		"postgres://u:p@127.0.0.1:5432/ppanel?sslmode=disable&x-migrations-table=schema_migrations": "pgx5://u:p@127.0.0.1:5432/ppanel?sslmode=disable&x-migrations-table=schema_migrations",
+		"postgresql://u@db/ppanel": "pgx5://u@db/ppanel",
+		"PostgreSQL://u@db/ppanel": "pgx5://u@db/ppanel",
+		"pgx5://u@db/ppanel":       "pgx5://u@db/ppanel",
+		"u:p@db:5432/ppanel":       "pgx5://u:p@db:5432/ppanel",
+	}
+	for dsn, want := range cases {
+		if got := postgresMigrationURL(dsn); got != want {
+			t.Errorf("postgresMigrationURL(%q) = %q, want %q", dsn, got, want)
+		}
+	}
+}
+
+// The DSN the application builds keeps every parameter, credentials and the
+// raw time-zone slash GORM depends on included.
+func TestPostgresMigrationURLKeepsTheApplicationDSN(t *testing.T) {
+	dsn := orm.Mysql{Config: orm.Config{Driver: orm.DriverPostgres, Addr: "db:5432", Username: "ppanel", Password: "p@ss/word", Dbname: "ppanel"}}.MigrationDsn()
+
+	got := postgresMigrationURL(dsn)
+
+	if want := "pgx5://" + strings.TrimPrefix(dsn, "postgres://"); got != want || !strings.HasPrefix(dsn, "postgres://") {
+		t.Fatalf("postgresMigrationURL(%q) = %q, want %q", dsn, got, want)
+	}
+	for _, part := range []string{"p%40ss%2Fword@db:5432/ppanel?", "sslmode=prefer", "TimeZone=Asia/Shanghai", "application_name=perfect-panel"} {
+		if !strings.Contains(got, part) {
+			t.Fatalf("migration URL %q lost %q", got, part)
+		}
+	}
+}
+
+// golang-migrate's mysql driver strips the mysql:// scheme, parses the rest
+// with the MySQL driver and URL-unescapes the user name and password. A
+// password with %, + or @ used to authenticate as something else, so the
+// migration failed on a database GORM had just connected to. The test replays
+// the driver's sequence on the URL Migrate builds.
+func TestMySQLMigrationURLRoundTripsReservedCredentialCharacters(t *testing.T) {
+	for _, password := range []string{"Ab+cd9%2F", "p@ss/word", "with space", "q?mark&amp"} {
+		m := orm.Mysql{Config: orm.Config{Driver: orm.DriverMySQL, Addr: "db:3306", Username: "us@r", Password: password, Dbname: "ppanel"}}
+
+		databaseURL := ensureScheme(orm.DriverMySQL, m.MigrationDsn())
+
+		if !strings.HasPrefix(databaseURL, "mysql://") || strings.Count(databaseURL, "://") != 1 {
+			t.Fatalf("migration URL %q, want exactly one mysql:// scheme", databaseURL)
+		}
+		cfg, err := mysqldriver.ParseDSN(strings.TrimPrefix(databaseURL, "mysql://"))
+		if err != nil {
+			t.Fatalf("parse %q: %v", databaseURL, err)
+		}
+		user, err := url.QueryUnescape(cfg.User)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := url.QueryUnescape(cfg.Passwd)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if user != "us@r" || got != password || cfg.DBName != "ppanel" || cfg.Addr != "db:3306" {
+			t.Fatalf("golang-migrate connects as %q/%q to %s/%s, want us@r/%q to db:3306/ppanel (URL %q)", user, got, cfg.Addr, cfg.DBName, password, databaseURL)
+		}
+	}
+}
+
+// golang-migrate's lib/pq driver registered "postgres"; only the pgx driver,
+// which shares GORM's pgx, may be linked now.
+func TestOnlyThePgxPostgresMigrationDriverIsLinked(t *testing.T) {
+	drivers := database.List()
+	if !slices.Contains(drivers, pgxScheme) {
+		t.Fatalf("migration drivers %v, want %s registered", drivers, pgxScheme)
+	}
+	for _, legacy := range []string{"postgres", "postgresql"} {
+		if slices.Contains(drivers, legacy) {
+			t.Fatalf("migration drivers %v still include the lib/pq driver %q", drivers, legacy)
+		}
+	}
+}
+
+// Up used to panic when it could not open the migration database; startup and
+// the setup page now receive the error.
+func TestUpReportsDatabasesItCannotOpen(t *testing.T) {
+	logtest.Discard(t)
+	cases := map[string]string{
+		orm.DriverPostgres: "postgres://ppanel:secret@127.0.0.1:1/ppanel?sslmode=disable&connect_timeout=5",
+		orm.DriverMySQL:    "ppanel:secret@tcp(127.0.0.1:1)/ppanel?timeout=5s",
+		"oracle":           "oracle://ppanel@db/ppanel",
+	}
+	for driver, dsn := range cases {
+		err := Up(driver, dsn)
+		if err == nil || errors.Is(err, NoChange) {
+			t.Fatalf("Up(%s) = %v, want an error", driver, err)
+		}
+		if strings.Contains(err.Error(), "unknown driver") {
+			t.Fatalf("Up(%s) found no migration driver: %v", driver, err)
+		}
 	}
 }
 

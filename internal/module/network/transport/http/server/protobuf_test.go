@@ -131,7 +131,7 @@ func TestResponseConversions(t *testing.T) {
 	config, err := serverConfigResponseToProtobuf(&dto.GetServerConfigResponse{
 		Basic:    dto.ServerBasic{PushInterval: 60, PullInterval: 30},
 		Protocol: "vless",
-		Config:   map[string]interface{}{"port": 443},
+		Config:   map[string]any{"port": 443},
 	})
 	if err != nil {
 		t.Fatalf("serverConfigResponseToProtobuf() error = %v", err)

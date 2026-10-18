@@ -203,3 +203,36 @@ func TestQueryTrafficLogPageListCountsAndOrdersRows(t *testing.T) {
 		t.Fatalf("page ids = %v, want [3 2]", ids)
 	}
 }
+
+func TestQueryTrafficLogDetailsOpenDateBounds(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE TABLE traffic_log (id INTEGER PRIMARY KEY, server_id INTEGER, user_id INTEGER, subscribe_id INTEGER, download INTEGER, upload INTEGER, timestamp DATETIME)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		if err := db.Create(&traffic.TrafficLog{Id: int64(i + 1), Timestamp: day.AddDate(0, 0, i)}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name       string
+		start, end time.Time
+		want       int64
+	}{
+		{"both inclusive days", day, day.AddDate(0, 0, 2), 2},
+		{"start only", day.AddDate(0, 0, 1), time.Time{}, 2},
+		{"end only", time.Time{}, day.AddDate(0, 0, 1), 1},
+		{"none", time.Time{}, time.Time{}, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, total, err := (&trafficRepo{Conn: db}).QueryTrafficLogDetails(context.Background(), &traffic.TrafficLogDetailsFilter{Page: 1, Size: 10, Start: tc.start, End: tc.end})
+			if err != nil || total != tc.want || len(rows) != int(tc.want) {
+				t.Fatalf("total=%d rows=%d err=%v", total, len(rows), err)
+			}
+		})
+	}
+}

@@ -1,3 +1,10 @@
+// Package repository holds the modules' persistence contracts and the store
+// assembled from them: the repository interfaces, the per-domain store views
+// and scoped transactions, and GormStore, which builds every module's
+// repositories over one shared connection pool with the builders the modules
+// export. The implementations live in the owning modules, and each module
+// uses only the contracts it owns (ADR-001), so moving a module to its own
+// database only means pointing its builder at another connection.
 package repository
 
 import (
@@ -28,6 +35,7 @@ type Store interface {
 	OrderEvent() OrderEventRepo
 	Payment() PaymentRepo
 	Subscribe() SubscribeRepo
+	Entitlement() EntitlementRepo
 	System() SystemRepo
 	Task() TaskRepo
 	// TelegramTopic maps forum topics in the admin Telegram group to the
@@ -106,17 +114,10 @@ func newGormStore(db *gorm.DB, rds *redis.Client, invalidations *cache.Invalidat
 	return s
 }
 
-func newCachedConn(db *gorm.DB, rds *redis.Client, invalidations ...*cache.InvalidationQueue) cache.CachedConn {
-	if len(invalidations) > 0 && invalidations[0] != nil {
-		return cache.NewConn(db, rds, cache.WithInvalidationQueue(invalidations[0]))
-	}
-	return cache.NewConn(db, rds)
-}
-
 func (s *GormStore) Ads() AdsRepo                                 { return s.support.Ads }
 func (s *GormStore) Announcement() AnnouncementRepo               { return s.support.Announcements }
 func (s *GormStore) Auth() AuthRepo                               { return s.identity.Auths }
-func (s *GormStore) Client() ClientRepo                           { return s.platform.Client }
+func (s *GormStore) Client() ClientRepo                           { return s.subscription.Clients }
 func (s *GormStore) Coupon() CouponRepo                           { return s.billing.Coupons }
 func (s *GormStore) Document() DocumentRepo                       { return s.support.Documents }
 func (s *GormStore) Inbox() InboxRepo                             { return s.platform.Inbox }
@@ -127,6 +128,7 @@ func (s *GormStore) Order() OrderRepo                             { return s.bil
 func (s *GormStore) OrderEvent() OrderEventRepo                   { return s.billing.OrderEvents }
 func (s *GormStore) Payment() PaymentRepo                         { return s.billing.Payments }
 func (s *GormStore) Subscribe() SubscribeRepo                     { return s.subscription.Plans }
+func (s *GormStore) Entitlement() EntitlementRepo                 { return s.subscription.Entitlements }
 func (s *GormStore) System() SystemRepo                           { return s.platform.System }
 func (s *GormStore) Task() TaskRepo                               { return s.platform.Tasks }
 func (s *GormStore) TelegramTopic() TelegramTopicRepo             { return s.notification.TelegramTopics }

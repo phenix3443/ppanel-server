@@ -1,81 +1,33 @@
+// Package nodeconfig resolves the node configuration a server's nodes run
+// with: the global node settings and the server's override of them, whose
+// fields each either inherit (NULL) or replace a global value.
 package nodeconfig
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/perfect-panel/server/internal/config"
 	dto "github.com/perfect-panel/server/internal/module/network/contract"
 	"github.com/perfect-panel/server/internal/module/network/entity/node"
-	"github.com/pkg/errors"
 )
 
+// GlobalValues is the node configuration every server inherits, normalized
+// like any other configuration values.
 func GlobalValues(c config.NodeConfig) dto.ServerNodeConfigValues {
-	dns := make([]dto.NodeDNS, 0, len(c.DNS))
+	values := dto.ServerNodeConfigValues{IPStrategy: c.IPStrategy, Block: c.Block}
 	for _, d := range c.DNS {
-		dns = append(dns, dto.NodeDNS{
-			Proto:      d.Proto,
-			Address:    d.Address,
-			ServerName: d.ServerName,
-			Domains:    normalizeStrings(d.Domains),
-		})
+		values.DNS = append(values.DNS, dto.NodeDNS(d))
 	}
-
-	outbound := make([]dto.NodeOutbound, 0, len(c.Outbound))
 	for _, o := range c.Outbound {
-		outbound = append(outbound, dto.NodeOutbound{
-			Name:                 o.Name,
-			Protocol:             o.Protocol,
-			Address:              o.Address,
-			Port:                 o.Port,
-			User:                 o.User,
-			Password:             o.Password,
-			UUID:                 o.UUID,
-			Cipher:               o.Cipher,
-			Plugin:               o.Plugin,
-			PluginOptions:        o.PluginOptions,
-			Security:             o.Security,
-			SNI:                  o.SNI,
-			ALPN:                 normalizeStrings(o.ALPN),
-			AllowInsecure:        o.AllowInsecure,
-			Fingerprint:          o.Fingerprint,
-			Transport:            o.Transport,
-			Host:                 o.Host,
-			Path:                 o.Path,
-			ServiceName:          o.ServiceName,
-			XHTTPMode:            o.XHTTPMode,
-			XHTTPExtra:           o.XHTTPExtra,
-			Flow:                 o.Flow,
-			Encryption:           o.Encryption,
-			EncryptionMode:       o.EncryptionMode,
-			EncryptionRTT:        o.EncryptionRTT,
-			EncryptionTicket:     o.EncryptionTicket,
-			EncryptionPadding:    o.EncryptionPadding,
-			EncryptionPassword:   o.EncryptionPassword,
-			Multiplex:            o.Multiplex,
-			UoT:                  o.UoT,
-			UoTVersion:           o.UoTVersion,
-			CongestionController: o.CongestionController,
-			UDPStream:            o.UDPStream,
-			ReduceRtt:            o.ReduceRtt,
-			Heartbeat:            o.Heartbeat,
-			RealityPublicKey:     o.RealityPublicKey,
-			RealityShortId:       o.RealityShortId,
-			SpiderX:              o.SpiderX,
-			Settings:             o.Settings,
-			StreamSettings:       o.StreamSettings,
-			Rules:                normalizeStrings(o.Rules),
-		})
+		values.Outbound = append(values.Outbound, dto.NodeOutbound(o))
 	}
-
-	return dto.ServerNodeConfigValues{
-		IPStrategy: c.IPStrategy,
-		DNS:        ensureDNS(dns),
-		Block:      normalizeStrings(c.Block),
-		Outbound:   ensureOutbound(outbound),
-	}
+	return CloneValues(values)
 }
 
+// ApplyOverride replaces the values the override sets; a missing override
+// changes nothing.
 func ApplyOverride(values *dto.ServerNodeConfigValues, override *node.ServerConfigOverride) error {
 	if values == nil || override == nil || override.Id == 0 {
 		return nil
@@ -108,6 +60,8 @@ func ApplyOverride(values *dto.ServerNodeConfigValues, override *node.ServerConf
 	return nil
 }
 
+// OverrideResponse is the API form of a server's override: each value it
+// does not set is marked inherited.
 func OverrideResponse(override *node.ServerConfigOverride) (dto.ServerNodeConfigOverride, error) {
 	resp := dto.ServerNodeConfigOverride{
 		InheritIPStrategy: true,
@@ -154,6 +108,9 @@ func OverrideResponse(override *node.ServerConfigOverride) (dto.ServerNodeConfig
 	return resp, nil
 }
 
+// OverrideModel is the stored form of a server's override as the API sets
+// it, and whether it inherits every value, in which case nothing need be
+// stored.
 func OverrideModel(serverID int64, req dto.ServerNodeConfigOverride) (*node.ServerConfigOverride, bool, error) {
 	data := &node.ServerConfigOverride{
 		ServerId: serverID,
@@ -188,6 +145,8 @@ func OverrideModel(serverID int64, req dto.ServerNodeConfigOverride) (*node.Serv
 	return data, allInherited, nil
 }
 
+// CloneValues deep-copies values, normalizing its string lists and giving the
+// DNS and outbound lists their defaults when empty.
 func CloneValues(values dto.ServerNodeConfigValues) dto.ServerNodeConfigValues {
 	dns := make([]dto.NodeDNS, 0, len(values.DNS))
 	for _, d := range values.DNS {
@@ -259,7 +218,7 @@ func unmarshalJSONField[T any](value string, target *T, field string) error {
 		return nil
 	}
 	if err := json.Unmarshal([]byte(value), target); err != nil {
-		return errors.Wrapf(err, "unmarshal server node config %s", field)
+		return fmt.Errorf("unmarshal server node config %s: %w", field, err)
 	}
 	return nil
 }
@@ -267,7 +226,7 @@ func unmarshalJSONField[T any](value string, target *T, field string) error {
 func marshalJSONField(value any, field string) (string, error) {
 	data, err := json.Marshal(value)
 	if err != nil {
-		return "", errors.Wrapf(err, "marshal server node config %s", field)
+		return "", fmt.Errorf("marshal server node config %s: %w", field, err)
 	}
 	return string(data), nil
 }

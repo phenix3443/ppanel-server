@@ -3,6 +3,8 @@ package order
 import (
 	"testing"
 	"time"
+
+	"github.com/perfect-panel/server/pkg/timeutil"
 )
 
 func TestGenerateTradeNoFormat(t *testing.T) {
@@ -15,7 +17,7 @@ func TestGenerateTradeNoFormat(t *testing.T) {
 			t.Fatalf("trade number %q has non-digit %q at %d", no, c, i)
 		}
 	}
-	if stamp, err := time.ParseInLocation("20060102150405", no[:14], time.Local); err != nil {
+	if stamp, err := time.ParseInLocation("20060102150405", no[:14], timeutil.Location()); err != nil {
 		t.Fatalf("trade number %q does not start with a timestamp: %v", no, err)
 	} else if time.Since(stamp) > time.Minute {
 		t.Fatalf("trade number timestamp %v is not recent", stamp)
