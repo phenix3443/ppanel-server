@@ -20,7 +20,7 @@ GOBUILD=CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)"
 
 # Pinned developer tools. CI installs the same versions through these targets.
 TOOLS_BIN := $(CURDIR)/bin/tools
-GOLANGCI_LINT_VERSION ?= v2.13.2
+GOLANGCI_LINT_VERSION ?= v2.15.0
 GOIMPORTS_VERSION ?= v0.44.0
 GOVULNCHECK_VERSION ?= v1.8.0
 GORELEASER_VERSION ?= v2.18.2

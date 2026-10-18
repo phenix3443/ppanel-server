@@ -376,10 +376,12 @@ func TestHandleInitConfigRefusesConcurrentSubmissions(t *testing.T) {
 	if len(inst.admins) != 1 {
 		t.Fatalf("admins = %v, want exactly one", inst.admins)
 	}
-	<-inst.done
+	if err := <-inst.done; err != nil {
+		t.Fatalf("done = %v, want nil", err)
+	}
 	select {
-	case <-inst.done:
-		t.Fatal("the caller was signalled twice")
+	case err := <-inst.done:
+		t.Fatalf("the caller was signalled twice (err=%v)", err)
 	default:
 	}
 }
