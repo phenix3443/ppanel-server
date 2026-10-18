@@ -153,7 +153,11 @@ func Migrate(ctx context.Context, cfg Config) error {
 		}
 	}
 
-	if err := resetSequences(ctx, postgresDB, cfg.Schema); err != nil {
+	copied := make([]string, 0, len(plans))
+	for _, plan := range plans {
+		copied = append(copied, plan.Name)
+	}
+	if err := resetSequences(ctx, postgresDB, cfg.Schema, copied); err != nil {
 		return err
 	}
 	log.Printf("migration completed")
@@ -866,14 +870,18 @@ func parseTimestamp(value string, location *time.Location) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unsupported timestamp %q", value)
 }
 
-func resetSequences(ctx context.Context, db *sql.DB, schema string) (err error) {
+// resetSequences moves the sequences of the copied tables past their highest
+// id. Only those tables: a migration of a subset of tables must not touch the
+// others, which may change underneath it (and do, in the shared test database).
+func resetSequences(ctx context.Context, db *sql.DB, schema string, tables []string) (err error) {
 	rows, err := db.QueryContext(ctx, //nolint:sqlclosecheck // closed by closeRows, which folds the close error into err
 		`
 SELECT table_name, column_name
 FROM information_schema.columns
 WHERE table_schema = $1
+  AND table_name = ANY($2)
   AND (is_identity = 'YES' OR column_default LIKE 'nextval(%')
-ORDER BY table_name, ordinal_position`, schema)
+ORDER BY table_name, ordinal_position`, schema, tables)
 	if err != nil {
 		return fmt.Errorf("list postgres sequences: %w", err)
 	}
