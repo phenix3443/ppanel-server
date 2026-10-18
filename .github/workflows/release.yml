@@ -13,19 +13,11 @@ permissions:
   contents: write
   packages: write
 
-# Read-only by default. The jobs that create the release and upload its assets
-# ask for contents: write themselves; the image job pushes to Docker Hub with
-# its own credentials and needs nothing more.
-permissions:
-  contents: read
-
 jobs:
   build-image:
     runs-on: ubuntu-latest
     env:
       IMAGE_NAME: ppanel-server
-      VERSION: ${{ needs.release-notes.outputs.version }}
-      BUILD_TIME: ${{ needs.release-notes.outputs.build_time }}
 
     steps:
       - name: Checkout repository
@@ -48,14 +40,14 @@ jobs:
 
       - name: Extract version from git tag
         id: version
-        run: echo "VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')" >> $GITHUB_ENV
+        run: echo "VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')" >> "$GITHUB_ENV"
 
       - name: Get short SHA
         id: sha
-        run: echo "GIT_SHA=${GITHUB_SHA::8}" >> $GITHUB_ENV
+        run: echo "GIT_SHA=${GITHUB_SHA::8}" >> "$GITHUB_ENV"
 
       - name: Set BUILD_TIME env
-        run: echo BUILD_TIME=$(date --iso-8601=seconds) >> ${GITHUB_ENV}
+        run: echo "BUILD_TIME=$(date --iso-8601=seconds)" >> "$GITHUB_ENV"
 
 
       - name: Build and push image for main release
@@ -97,7 +89,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.27.2'
 
       - name: Install GoReleaser
         run: |
@@ -125,20 +117,14 @@ jobs:
         exclude:
           - goarch: '386'
             goos: darwin
-    env:
-      VERSION: ${{ needs.release-notes.outputs.version }}
-      CHANNEL: ${{ needs.release-notes.outputs.channel }}
-      BUILD_TIME: ${{ needs.release-notes.outputs.build_time }}
-      ASSET: ppanel-server-${{ matrix.goos }}-${{ matrix.goarch }}
-
     steps:
       - uses: actions/checkout@v5
       - name: Extract version from git tag
         id: version
-        run: echo "VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')" >> $GITHUB_ENV
+        run: echo "VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')" >> "$GITHUB_ENV"
 
       - name: Set BUILD_TIME env
-        run: echo BUILD_TIME=$(date --iso-8601=seconds) >> ${GITHUB_ENV}
+        run: echo "BUILD_TIME=$(date --iso-8601=seconds)" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v5
       - uses: wangyoucao577/go-release-action@v1
@@ -147,11 +133,11 @@ jobs:
           goos: ${{ matrix.goos }}
           goarch: ${{ matrix.goarch }}
           asset_name: "ppanel-server-${{ matrix.goos }}-${{ matrix.goarch }}"
-          goversion: "https://dl.google.com/go/go1.23.3.linux-amd64.tar.gz"
+          goversion: "https://dl.google.com/go/go1.27.2.linux-amd64.tar.gz"
           project_path: "."
           binary_name: "ppanel-server"
           extra_files: LICENSE etc
-          ldflags: -X "github.com/perfect-panel/server/pkg/constant.Version=${{env.VERSION}}" -X "github.com/perfect-panel/server/pkg/constant.BuildTime=${{env.BUILD_TIME}}"
+          ldflags: -X "github.com/perfect-panel/server/internal/app/buildinfo.Version=${{env.VERSION}}" -X "github.com/perfect-panel/server/internal/app/buildinfo.BuildTime=${{env.BUILD_TIME}}"
 
   trigger-ppanel-image:
     name: Trigger ppanel image build
