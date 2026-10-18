@@ -1,3 +1,5 @@
+// Package payment holds the billing domain's payment method entity and the
+// stored configuration of each gateway it can be bound to.
 package payment
 
 import (
@@ -55,7 +57,11 @@ type StripeConfig struct {
 	PublicKey     string `json:"public_key"`
 	SecretKey     string `json:"secret_key"`
 	WebhookSecret string `json:"webhook_secret"`
-	Payment       string `json:"payment"`
+	// WebhookEndpointID is the Stripe webhook endpoint registered for the
+	// method, so it can be removed when the secret key is rotated to another
+	// account; empty on methods registered before it was recorded.
+	WebhookEndpointID string `json:"webhook_endpoint_id,omitempty"`
+	Payment           string `json:"payment"`
 }
 
 func (l *StripeConfig) Marshal() ([]byte, error) {
@@ -95,7 +101,7 @@ func (l *AlipayF2FConfig) Marshal() ([]byte, error) {
 
 func (l *AlipayF2FConfig) Unmarshal(data []byte) error {
 	// First try to unmarshal into a map to handle string "true"/"false" for sandbox
-	var rawMap map[string]interface{}
+	var rawMap map[string]any
 	if err := json.Unmarshal(data, &rawMap); err != nil {
 		return err
 	}
@@ -159,47 +165,4 @@ func (l *EPayConfig) Unmarshal(data []byte) error {
 	type Alias EPayConfig
 	aux := (*Alias)(l)
 	return json.Unmarshal(data, &aux)
-}
-
-// WaffoConfig configures the Waffo Pancake merchant-of-record gateway.
-// WebhookID is not administrator input: it records the endpoint PPanel
-// registered on the store so a later save updates that endpoint instead of
-// adding a second one.
-type WaffoConfig struct {
-	MerchantID  string `json:"merchant_id"`
-	PrivateKey  string `json:"private_key"`
-	StoreID     string `json:"store_id"`
-	ProductID   string `json:"product_id"`
-	TaxCategory string `json:"tax_category"`
-	TestMode    bool   `json:"test_mode"`
-	WebhookID   string `json:"webhook_id,omitempty"`
-}
-
-func (l *WaffoConfig) Marshal() ([]byte, error) {
-	type Alias WaffoConfig
-	return json.Marshal(&struct {
-		*Alias
-	}{
-		Alias: (*Alias)(l),
-	})
-}
-
-func (l *WaffoConfig) Unmarshal(data []byte) error {
-	// The admin form posts every field as a string, so test_mode arrives as
-	// "true"/"false" rather than a JSON boolean.
-	var rawMap map[string]interface{}
-	if err := json.Unmarshal(data, &rawMap); err != nil {
-		return err
-	}
-	if value, ok := rawMap["test_mode"]; ok {
-		if text, isString := value.(string); isString {
-			rawMap["test_mode"] = text == "true" || text == "1"
-		}
-	}
-	converted, err := json.Marshal(rawMap)
-	if err != nil {
-		return err
-	}
-	type Alias WaffoConfig
-	return json.Unmarshal(converted, (*Alias)(l))
 }

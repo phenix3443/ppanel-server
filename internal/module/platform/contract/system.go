@@ -1,5 +1,12 @@
 package dto
 
+// SecretMask is what the admin settings API shows in place of a stored
+// secret (the Turnstile secret, the currency access key, the node outbound
+// credentials). An update that carries SecretMask in such a field keeps the
+// stored value; an empty field clears it. The node secret is shown in clear:
+// administrators copy it into every node's configuration.
+const SecretMask = "********"
+
 type Currency struct {
 	CurrencyUnit   string `json:"currency_unit"`
 	CurrencySymbol string `json:"currency_symbol"`

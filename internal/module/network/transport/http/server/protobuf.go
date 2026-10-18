@@ -287,7 +287,7 @@ func serverProtocolToProtobuf(protocol dto.Protocol) (*serverv1.ServerProtocol, 
 	}, nil
 }
 
-func valueToStruct(value interface{}) (*structpb.Struct, error) {
+func valueToStruct(value any) (*structpb.Struct, error) {
 	body, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
@@ -299,7 +299,7 @@ func valueToStruct(value interface{}) (*structpb.Struct, error) {
 	return result, nil
 }
 
-func valueToProtobufValue(value interface{}) (*structpb.Value, error) {
+func valueToProtobufValue(value any) (*structpb.Value, error) {
 	if value == nil {
 		return nil, nil
 	}

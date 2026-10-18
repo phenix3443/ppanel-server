@@ -48,6 +48,7 @@ go run ./tools/mysql2postgres \
 
 - `--mysql`：源 MySQL DSN。
 - `--postgres`：目标 PostgreSQL DSN。
+- `--location`：MySQL 中 DATETIME 值所在的 IANA 时区，即面板的 `AppLocation`（默认 `Asia/Shanghai`）。`--mysql` 未带 `loc` 参数时按此时区读取；以文本形式读到的时间也按此时区解析，与运行迁移工具的机器时区无关。带 `loc` 的 DSN 保留自己的时区。
 - `--schema`：PostgreSQL schema，默认是 `public`。
 - `--truncate`：复制前清空目标库中两边都存在的表。
 - `--yes`：使用 `--truncate` 时必须传入，用于确认破坏性操作。

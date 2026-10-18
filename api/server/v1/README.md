@@ -26,9 +26,7 @@ Nowhere 节点使用 `GET /v2/server/{server_id}` 获取扁平协议配置，并
 `tcp` 或 `udp`，ALPN 默认且只能包含一个 `now/1`。用户列表中的 UUID 直接作为
 Nowhere shared key。旧版 `GET /v1/server/config` 不定义 Nowhere 配置结构。
 
-修改 schema 后，使用以下命令重新生成 Go 绑定：
-
-```sh
-PATH="$(go env GOPATH)/bin:$PATH" \
-  protoc --go_out=paths=source_relative:. api/server/v1/server.proto
-```
+修改 schema 后，在仓库根目录运行 `make proto` 重新生成 Go 绑定。它要求
+protoc 版本与 CI 一致（`make -s print-PROTOC_VERSION`，即 libprotoc 3.21.12），
+并按 go.mod 中锁定的版本构建 protoc-gen-go，保证生成文件头与提交内容一致。
+CI 的 `make proto-check` 会重新生成并在与提交的 `server.pb.go` 不一致时失败。

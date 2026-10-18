@@ -1,24 +1,22 @@
 package serverapi
 
+// Protocol type names the legacy server-config shapes are built for.
 const (
-	Unchanged    = "Unchanged"
-	ShadowSocks  = "shadowsocks"
-	Vmess        = "vmess"
-	Vless        = "vless"
-	Trojan       = "trojan"
-	AnyTLS       = "anytls"
-	Tuic         = "tuic"
-	ShadowsocksR = "shadowsocksr"
-	Mieru        = "mieru"
-	Naive        = "naive"
-	Snell        = "snell"
-	Hysteria     = "hysteria"
-	Nowhere      = "nowhere"
-	// Deprecated: Hysteria2 is deprecated, use Hysteria instead
-	// TODO: remove in future versions
+	ShadowSocks = "shadowsocks"
+	Vmess       = "vmess"
+	Vless       = "vless"
+	Trojan      = "trojan"
+	AnyTLS      = "anytls"
+	Tuic        = "tuic"
+	Hysteria    = "hysteria"
+	Nowhere     = "nowhere"
+	// Hysteria2 is the former name of Hysteria, which older nodes still ask
+	// for.
 	Hysteria2 = "hysteria2"
 )
 
+// SecurityConfig is the TLS/REALITY block of the legacy server-config
+// shapes.
 type SecurityConfig struct {
 	SNI                  string `json:"sni"`
 	AllowInsecure        *bool  `json:"allow_insecure"`
@@ -32,6 +30,8 @@ type SecurityConfig struct {
 	PaddingScheme        string `json:"padding_scheme"`
 }
 
+// TransportConfig is the transport block of the legacy server-config
+// shapes.
 type TransportConfig struct {
 	Path                 string `json:"path"`
 	Host                 string `json:"host"`
@@ -42,6 +42,9 @@ type TransportConfig struct {
 	CongestionController string `json:"congestion_controller"`
 }
 
+// VlessNode, VmessNode, ShadowsocksNode, TrojanNode, AnyTLSNode, TuicNode
+// and Hysteria2Node are the legacy server-config shapes of their protocols
+// (GET /v1/server/config).
 type VlessNode struct {
 	Port            uint16           `json:"port"`
 	Flow            string           `json:"flow"`

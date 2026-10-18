@@ -3,33 +3,34 @@ package systemsetting
 import (
 	"context"
 
+	dto "github.com/perfect-panel/server/internal/module/platform/contract"
 	"github.com/perfect-panel/server/pkg/logger"
 	"github.com/perfect-panel/server/pkg/xerr"
-	"github.com/pkg/errors"
-
-	dto "github.com/perfect-panel/server/internal/module/platform/contract"
 )
 
-type UpdateNodeConfigLogic struct {
-	logger.Logger
-	ctx  context.Context
-	deps Deps
-}
-
-func newUpdateNodeConfigLogic(ctx context.Context, deps Deps) *UpdateNodeConfigLogic {
-	return &UpdateNodeConfigLogic{
-		Logger: logger.WithContext(ctx),
-		ctx:    ctx,
-		deps:   deps,
-	}
-}
-
-func (l *UpdateNodeConfigLogic) UpdateNodeConfig(req *dto.NodeConfig) error {
-	err := updateConfigFields(l.ctx, l.deps, "server", convertedConfigFields(*req))
+// UpdateNodeConfig stores the node settings, kept in the server settings
+// category, and reloads the node subsystem. Masked outbound credentials keep
+// the stored ones.
+func (s *Service) UpdateNodeConfig(ctx context.Context, req *dto.NodeConfig) error {
+	stored, err := s.storedNodeConfig(ctx)
 	if err != nil {
-		l.Errorw("[UpdateNodeConfig] update node config error", logger.Field("error", err.Error()))
-		return errors.Wrapf(xerr.NewErrCode(xerr.DatabaseUpdateError), "update server config error: %v", err)
+		// A malformed stored document must not stop the update that fixes it.
+		logger.WithContext(ctx).Errorw("[UpdateNodeConfig] stored node config could not be read", logger.Field("error", err.Error()))
 	}
-	l.deps.reinit("node")
-	return nil
+	var storedOutbounds []dto.PlatformNodeOutboundSnapshot
+	if stored != nil {
+		storedOutbounds = stored.Outbound
+	}
+	if err := keepOutboundSecrets(req.Outbound, storedOutbounds); err != nil {
+		return err
+	}
+	change := settingsChange{category: "server", next: convertedConfigFields(*req)}
+	if stored != nil {
+		change.previous = convertedConfigFields(*stored)
+	}
+	if err := updateConfigFields(ctx, s.deps, change); err != nil {
+		logger.WithContext(ctx).Errorw("[UpdateNodeConfig] update node config error", logger.Field("error", err.Error()))
+		return xerr.Wrapf(err, xerr.DatabaseUpdateError, "update server config error: %v", err)
+	}
+	return s.deps.reinit("node")
 }

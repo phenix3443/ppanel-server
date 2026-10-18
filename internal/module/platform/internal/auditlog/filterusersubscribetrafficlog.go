@@ -6,147 +6,82 @@ import (
 
 	dto "github.com/perfect-panel/server/internal/module/platform/contract"
 	"github.com/perfect-panel/server/internal/module/platform/entity/log"
-	"github.com/perfect-panel/server/pkg/logger"
+	"github.com/perfect-panel/server/internal/repository/kernel"
 	"github.com/perfect-panel/server/pkg/timeutil"
 	"github.com/perfect-panel/server/pkg/xerr"
-	"github.com/pkg/errors"
 )
 
-type FilterUserSubscribeTrafficLogLogic struct {
-	logger.Logger
-	ctx  context.Context
-	deps Deps
-}
-
-// NewFilterUserSubscribeTrafficLogLogic Filter user subscribe traffic log
-func newFilterUserSubscribeTrafficLogLogic(ctx context.Context, deps Deps) *FilterUserSubscribeTrafficLogLogic {
-	return &FilterUserSubscribeTrafficLogLogic{
-		Logger: logger.WithContext(ctx),
-		ctx:    ctx,
-		deps:   deps,
+// FilterUserSubscribeTrafficLog pages the subscriptions' daily traffic:
+// today's live ranking first, then the archived days, narrowed to one user
+// or one subscription when asked. The retention settings decide which
+// archived days still have their details.
+func (s *Service) FilterUserSubscribeTrafficLog(ctx context.Context, req *dto.FilterSubscribeTrafficRequest) (*dto.FilterSubscribeTrafficResponse, error) {
+	now := timeutil.Now()
+	today := now.Format(time.DateOnly)
+	startDate, endDate := req.StartDate, req.EndDate
+	if startDate == "" && endDate == "" && req.Date != "" {
+		startDate, endDate = req.Date, req.Date
 	}
-}
-
-func (l *FilterUserSubscribeTrafficLogLogic) FilterUserSubscribeTrafficLog(req *dto.FilterSubscribeTrafficRequest) (resp *dto.FilterSubscribeTrafficResponse, err error) {
-	if req.Size <= 0 {
-		req.Size = 10
-	}
-	if req.Page <= 0 {
-		req.Page = 1
-	}
-
-	today := timeutil.Now().Format("2006-01-02")
-	var list []dto.UserSubscribeTrafficLog
-	var total int64
-
-	if req.Date == today || req.Date == "" {
-		now := timeutil.Now()
+	list := make([]dto.UserSubscribeTrafficLog, 0)
+	if (startDate == "" || startDate <= today) && (endDate == "" || endDate >= today) {
 		start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, timeutil.Location())
-		end := start.Add(24 * time.Hour)
-
-		userTraffic, err := l.deps.Traffic.QueryUserTrafficRanking(l.ctx, start, end)
+		traffic, err := s.deps.Traffic.QueryUserTrafficRanking(ctx, start, start.AddDate(0, 0, 1))
 		if err != nil {
-			l.Errorw("[FilterUserSubscribeTrafficLog] Query Database Error", logger.Field("error", err.Error()))
-			return nil, err
+			return nil, xerr.Wrapf(err, xerr.DatabaseQueryError, "today traffic query error: %s", err)
 		}
-
-		for _, v := range userTraffic {
-			list = append(list, dto.UserSubscribeTrafficLog{
-				UserId:      v.UserId,
-				SubscribeId: v.SubscribeId,
-				Upload:      v.Upload,
-				Download:    v.Download,
-				Total:       v.Total,
-				Date:        today,
-				Details:     true,
-			})
-		}
-		todayTotal := len(list)
-
-		startIdx := (req.Page - 1) * req.Size
-		endIdx := startIdx + req.Size
-		if startIdx < todayTotal {
-			if endIdx > todayTotal {
-				endIdx = todayTotal
+		for _, row := range traffic {
+			if (req.UserId != 0 && row.UserId != req.UserId) || (req.UserSubscribeId != 0 && row.SubscribeId != req.UserSubscribeId) {
+				continue
 			}
-			pageData := list[startIdx:endIdx]
-			return &dto.FilterSubscribeTrafficResponse{
-				List:  pageData,
-				Total: int64(todayTotal),
-			}, nil
+			list = append(list, dto.UserSubscribeTrafficLog{UserId: row.UserId, SubscribeId: row.SubscribeId, Upload: row.Upload, Download: row.Download, Total: row.Total, Date: today, Details: true})
 		}
-
-		need := endIdx - todayTotal
-		historyPage := (need + req.Size - 1) / req.Size // 算出需要的历史页数
-		historyData, historyTotal, err := l.deps.Logs.FilterSystemLog(l.ctx, &log.FilterParams{
-			Page: historyPage,
-			Size: need,
-			Type: log.TypeSubscribeTraffic.Uint8(),
-		})
-
-		if err != nil {
-			l.Errorw("[FilterUserSubscribeTrafficLog] Query Database Error", logger.Field("error", err.Error()))
-			return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "[FilterUserSubscribeTrafficLog] Query Database Error")
-		}
-
-		for _, datum := range historyData {
-			var item log.UserTraffic
-			err = item.Unmarshal([]byte(datum.Content))
-			if err != nil {
-				l.Errorw("[FilterUserSubscribeTrafficLog] Unmarshal Content Error", logger.Field("error", err.Error()))
-				return nil, errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "corrupt subscription traffic log %d: %v", datum.Id, err)
-			}
-			list = append(list, dto.UserSubscribeTrafficLog{
-				UserId:      item.UserId,
-				SubscribeId: item.SubscribeId,
-				Upload:      item.Upload,
-				Download:    item.Download,
-				Total:       item.Total,
-				Date:        datum.Date,
-				Details:     false,
-			})
-		}
-		// 返回最终分页数据
-		if endIdx > len(list) {
-			endIdx = len(list)
-		}
-		pageData := list[startIdx:endIdx]
-
-		return &dto.FilterSubscribeTrafficResponse{
-			List:  pageData,
-			Total: int64(todayTotal) + historyTotal,
-		}, nil
 	}
-	var data []*log.SystemLog
-	data, total, err = l.deps.Logs.FilterSystemLog(l.ctx, &log.FilterParams{
-		Page: req.Page,
-		Size: req.Size,
-		Type: log.TypeSubscribeTraffic.Uint8(),
-		Data: req.Date,
-	})
+	// Today's ranking replaces persisted rows for today, avoiding duplicates.
+	yesterday := now.AddDate(0, 0, -1).Format(time.DateOnly)
+	if endDate == "" || endDate > yesterday {
+		endDate = yesterday
+	}
+	page, size := kernel.NormalizePage(req.Page, req.Size)
+	offset := (page - 1) * size
+	todayTotal := len(list)
+	historyOffset := max(0, offset-todayTotal)
+	// An archived row's object is its subscription; its user is in the
+	// content.
+	params := &log.FilterParams{Page: historyOffset/size + 1, Size: size, Type: log.TypeSubscribeTraffic.Uint8(), StartDate: startDate, EndDate: endDate, Search: req.Search, ObjectID: req.UserSubscribeId}
+	if req.UserId != 0 {
+		params.ContentInt64 = map[string]int64{"user_id": req.UserId}
+	}
+	history, historyTotal, err := s.deps.Logs.FilterSystemLog(ctx, params)
 	if err != nil {
-		l.Errorw("[FilterUserSubscribeTrafficLog] Query Database Error", logger.Field("error", err.Error()))
-		return nil, errors.Wrapf(xerr.NewErrCode(xerr.DatabaseQueryError), "[FilterUserSubscribeTrafficLog] Query Database Error")
+		return nil, xerr.Wrapf(err, xerr.DatabaseQueryError, "history query error: %s", err)
 	}
-	for _, datum := range data {
-		var item log.UserTraffic
-		err = item.Unmarshal([]byte(datum.Content))
+	list = list[min(offset, todayTotal):min(offset+size, todayTotal)]
+	// A mixed live/history page can begin partway through a database page.
+	skip := historyOffset % size
+	history = history[min(skip, len(history)):]
+	if len(list)+len(history) < size && int64(historyOffset+len(history)) < historyTotal {
+		params.Page++
+		params.SkipCount = true
+		next, _, err := s.deps.Logs.FilterSystemLog(ctx, params)
 		if err != nil {
-			l.Errorw("[FilterUserSubscribeTrafficLog] Unmarshal Content Error", logger.Field("error", err.Error()))
-			return nil, errors.Wrapf(xerr.NewErrCode(xerr.ERROR), "corrupt subscription traffic log %d: %v", datum.Id, err)
+			return nil, xerr.Wrapf(err, xerr.DatabaseQueryError, "history query error: %s", err)
 		}
-		list = append(list, dto.UserSubscribeTrafficLog{
-			UserId:      item.UserId,
-			SubscribeId: item.SubscribeId,
-			Upload:      item.Upload,
-			Download:    item.Download,
-			Total:       item.Total,
-			Date:        datum.Date,
-			Details:     false,
-		})
+		history = append(history, next...)
 	}
-	return &dto.FilterSubscribeTrafficResponse{
-		List:  list,
-		Total: total,
-	}, nil
+	for _, item := range history {
+		if len(list) == size {
+			break
+		}
+		var content log.UserTraffic
+		if err := content.Unmarshal([]byte(item.Content)); err != nil {
+			return nil, xerr.Wrapf(err, xerr.ERROR, "corrupt subscription traffic log %d: %v", item.Id, err)
+		}
+		hasDetails := true
+		if autoClear, clearDays := s.deps.logRetention(); autoClear {
+			day, err := time.ParseInLocation(time.DateOnly, item.Date, timeutil.Location())
+			hasDetails = err == nil && !day.Before(now.AddDate(0, 0, -int(clearDays)))
+		}
+		list = append(list, dto.UserSubscribeTrafficLog{UserId: content.UserId, SubscribeId: content.SubscribeId, Upload: content.Upload, Download: content.Download, Total: content.Total, Date: item.Date, Details: hasDetails})
+	}
+	return &dto.FilterSubscribeTrafficResponse{List: list, Total: int64(todayTotal) + historyTotal}, nil
 }

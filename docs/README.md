@@ -1,7 +1,7 @@
 # 文档导航
 
 本目录是服务端唯一的文档目录，按读者分为三类。项目简介见根目录
-[README.md](../README.md)（中文）与 [README_EN.md](../README_EN.md)（英文）。
+[README.md](../README.md)（英文）与 [README_ZH.md](../README_ZH.md)（中文）。
 
 ## 使用指南（部署与运维）
 
@@ -9,6 +9,7 @@
 |---|---|
 | [guide/install.md](guide/install.md) / [install-zh.md](guide/install-zh.md) | 安装与部署（英文 / 中文） |
 | [guide/config.md](guide/config.md) / [config-zh.md](guide/config-zh.md) | 配置项说明（英文 / 中文） |
+| [guide/api-changes-2026-09.md](guide/api-changes-2026-09.md) / [api-changes-2026-09-zh.md](guide/api-changes-2026-09-zh.md) | 2026 年 9 月审计修复带来的 API 变化清单（英文 / 中文），供前端与客户端维护者查阅 |
 
 ## 贡献指南
 
@@ -34,5 +35,6 @@
 
 - 新的设计文档放入 `design/`，命名为小写中划线；正式的架构决策使用 `adr-NNN-` 前缀编号。
 - 中英对照的用户文档放在同一目录，英文不加后缀，中文加 `-zh` 后缀（如 `config.md` / `config-zh.md`）。
-- 文档内引用本仓库其他文件时使用相对于本文件的路径；根目录 README 的语言切换链接指向 `README_EN.md`。
+- 文档内引用本仓库其他文件时使用相对于本文件的路径；根目录 README 为英文默认版，
+  中文版位于 `README_ZH.md`，两者通过语言切换链接互指。
 - 构建产物（如 `ppanel.json`）不放入本目录；Swagger 文档由 CI 同步到前端文档仓库。
