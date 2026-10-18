@@ -1,6 +1,7 @@
 module github.com/perfect-panel/server
 
 go 1.27.1
+toolchain go1.27.2
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
