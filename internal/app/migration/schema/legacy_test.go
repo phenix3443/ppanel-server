@@ -2,8 +2,10 @@ package schema
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/perfect-panel/server/pkg/logger/logtest"
@@ -67,21 +69,15 @@ func TestRepairLegacyForkVersionReportsAFailedProbe(t *testing.T) {
 func TestUpRepairsAForkLegacyDatabase(t *testing.T) {
 	for driver, env := range map[string]string{orm.DriverMySQL: "PPANEL_TEST_MYSQL_DSN", orm.DriverPostgres: "PPANEL_TEST_POSTGRES_DSN"} {
 		t.Run(driver, func(t *testing.T) {
-			dsn := os.Getenv(env)
-			if dsn == "" {
+			shared := os.Getenv(env)
+			if shared == "" {
 				t.Skipf("set %s to run", env)
 			}
-			client, err := Migrate(driver, dsn)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := client.Drop(); err != nil {
-				t.Fatalf("drop: %v", err)
-			}
-			_, _ = client.Close()
+			// 其他包的连库测试同时在用 shared 那个库，这里只能在自己建的库里折腾
+			dsn := scratchDatabase(t, driver, shared)
 			// Reproduce the old fork binary: every migration up to 2178, then
 			// its own 03000 under that number.
-			client, err = Migrate(driver, dsn)
+			client, err := Migrate(driver, dsn)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -131,4 +127,31 @@ func connectForTest(t *testing.T, driver, dsn string) *gorm.DB {
 		t.Cleanup(func() { _ = sqlDB.Close() })
 	}
 	return db
+}
+
+// scratchDatabase creates an empty database next to the one shared names and
+// returns its DSN; the database is dropped when the test ends.
+func scratchDatabase(t *testing.T, driver, shared string) string {
+	t.Helper()
+	admin := connectForTest(t, driver, shared)
+	name := fmt.Sprintf("ppanel_legacy_%d", time.Now().UnixNano())
+	if err := admin.Exec("CREATE DATABASE " + name).Error; err != nil {
+		t.Fatalf("create scratch database: %v", err)
+	}
+	t.Cleanup(func() {
+		drop := "DROP DATABASE " + name
+		if orm.NormalizeDriver(driver) == orm.DriverPostgres {
+			drop += " WITH (FORCE)"
+		}
+		if err := admin.Exec(drop).Error; err != nil {
+			t.Errorf("drop scratch database: %v", err)
+		}
+	})
+	cfg := orm.ParseDSN(shared)
+	if cfg == nil {
+		t.Fatalf("%s dsn parse failed", driver)
+	}
+	cfg.Driver = orm.NormalizeDriver(driver)
+	cfg.Dbname = name
+	return orm.Mysql{Config: *cfg}.MigrationDsn()
 }
