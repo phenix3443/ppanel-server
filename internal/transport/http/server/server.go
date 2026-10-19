@@ -52,7 +52,13 @@ type Dependencies struct {
 	AllowedOrigins []string
 	// HTTP bounds the listener; a zero field leaves Hertz's default.
 	HTTP config.HTTPConfig
+	// MetricsAddr is where the Prometheus endpoint listens; empty is
+	// defaultMetricsAddr. Tests pass 127.0.0.1:0 so parallel servers do not
+	// contend for one port.
+	MetricsAddr string
 }
+
+const defaultMetricsAddr = ":9091"
 
 func New(deps Dependencies, addr string, tlsConfig *tls.Config) *Server {
 	opts := []hertzconfig.Option{
@@ -126,8 +132,12 @@ func newServer(deps Dependencies, opts []hertzconfig.Option) *Server {
 	billingHTTP.RegisterNotifyHandlers(engine, deps.Routes.Billing)
 
 	metrics := promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
+	metricsAddr := deps.MetricsAddr
+	if metricsAddr == "" {
+		metricsAddr = defaultMetricsAddr
+	}
 	return &Server{h: engine, metrics: metrics, metricsServer: &http.Server{
-		Addr:              ":9091",
+		Addr:              metricsAddr,
 		Handler:           metrics,
 		ReadHeaderTimeout: 5 * time.Second,
 	}}
