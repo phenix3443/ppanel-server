@@ -41,6 +41,21 @@ func dialDevice(t *testing.T, srv *httptest.Server) *websocket.Conn {
 	return conn
 }
 
+// 【必须等注册完成再发起下一次 dial】客户端 Dial 在握手响应写回时就返回了，
+// 而服务端的 AddDevice 还在注册途中。紧接着用同一个 device ID 再 dial，
+// 两次注册的先后是竞态：后注册的那条会把先注册的踢掉——如果旧连接反而
+// 后注册，被踢掉的就是新连接，表现为新连接收不到推送（close 1006）。
+func waitOnline(t *testing.T, dm *DeviceManager) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for dm.Online() != 1 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := dm.Online(); got != 1 {
+		t.Fatalf("Online() = %d, want the dialled device registered", got)
+	}
+}
+
 // heartbeat replies and subscription pushes write to the same connection
 // from different goroutines; the manager must serialize them instead of
 // panicking with gorilla/websocket's concurrent-write assertion. Run with
@@ -52,6 +67,7 @@ func TestConcurrentHeartbeatAndPushWrites(t *testing.T) {
 	const userID = int64(7)
 	srv := deviceTestServer(t, dm, userID, 5)
 	conn := dialDevice(t, srv)
+	waitOnline(t, dm)
 
 	var received atomic.Int64
 	closed := make(chan struct{})
@@ -110,7 +126,11 @@ func TestConcurrentHeartbeatAndPushWrites(t *testing.T) {
 	close(stop)
 	wg.Wait()
 
-	deadline := time.Now().Add(2 * time.Second)
+	// 【等的是「收够 800 条」，不是连接状态】超时曾经放宽到 30s 来压
+	// flaky，但真正的原因是 dial 之后没等注册完成：第一条 SendToDevice
+	// 撞上 "device offline" 会让 push worker 直接 return，剩下的消息
+	// 根本没发出去，再长的超时也等不到。注册已由 waitOnline 保证。
+	deadline := time.Now().Add(10 * time.Second)
 	for received.Load() < pushWorkers*pushesPerWorker && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -140,6 +160,7 @@ func TestKickDeliversNotificationThenCloses(t *testing.T) {
 
 	srv := deviceTestServer(t, dm, userID, 5)
 	conn := dialDevice(t, srv)
+	waitOnline(t, dm)
 
 	dm.KickDevice(userID, testDeviceID)
 
@@ -152,6 +173,13 @@ func TestKickDeliversNotificationThenCloses(t *testing.T) {
 	}
 	if string(msg) != `{"method":"kicked"}` {
 		t.Errorf("kick notification = %q, want %q", msg, `{"method":"kicked"}`)
+	}
+	// 【必须重设读 deadline】上一行 SetReadDeadline 设的是绝对时间点，
+	// 已经被第一次 ReadMessage 消耗掉一部分。第一次读慢的时候（共享 CI
+	// runner 上很常见），这一次读剩下的预算可能不足以等到连接关闭——
+	// 表现就是该用例耗时正好卡在 2.00s 然后失败。
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("reset read deadline: %v", err)
 	}
 	if _, _, err := conn.ReadMessage(); err == nil {
 		t.Error("expected connection to close after the kick notification")
@@ -175,6 +203,7 @@ func TestReconnectReplacesPreviousSocket(t *testing.T) {
 	const userID = int64(11)
 	srv := deviceTestServer(t, dm, userID, 5)
 	oldConn := dialDevice(t, srv)
+	waitOnline(t, dm)
 	newConn := dialDevice(t, srv)
 
 	if err := oldConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
@@ -240,6 +269,7 @@ func TestHeartbeatSweepKeepsADeviceConnectedWhileItWaited(t *testing.T) {
 	const userID = int64(13)
 	srv := deviceTestServer(t, dm, userID, 2)
 	conn := dialDevice(t, srv)
+	waitOnline(t, dm)
 	t.Cleanup(func() { _ = conn.Close() })
 
 	// The sweep starts while the test holds the user's lock: it has taken
