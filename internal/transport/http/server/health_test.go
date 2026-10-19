@@ -24,7 +24,7 @@ func TestStartReportsAListenerItCannotBind(t *testing.T) {
 	}
 	defer func() { _ = occupied.Close() }()
 
-	err = New(Dependencies{}, occupied.Addr().String(), nil).Start()
+	err = New(Dependencies{MetricsAddr: "127.0.0.1:0"}, occupied.Addr().String(), nil).Start()
 
 	if err == nil {
 		t.Fatal("Start returned nil although the port is taken")
@@ -38,7 +38,7 @@ func TestStartReportsAListenerItCannotBind(t *testing.T) {
 // closed the listener.
 func TestStartReturnsNilAfterShutdown(t *testing.T) {
 	logtest.Discard(t)
-	srv := New(Dependencies{}, "127.0.0.1:0", nil)
+	srv := New(Dependencies{MetricsAddr: "127.0.0.1:0"}, "127.0.0.1:0", nil)
 	result := make(chan error, 1)
 	go func() { result <- srv.Start() }()
 
