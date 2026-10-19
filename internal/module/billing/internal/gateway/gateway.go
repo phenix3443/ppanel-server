@@ -148,6 +148,9 @@ type CallbackStyle struct {
 	// (400 for an ErrInvalidCallback, 500 otherwise) so the gateway retries
 	// what may succeed later; a gateway that only reads the status.
 	StatusFailure bool
+	// SignatureHeader names the header that carries the body signature;
+	// empty means Stripe-Signature.
+	SignatureHeader string
 }
 
 // Gateway is the protocol of one payment gateway, bound to one configured

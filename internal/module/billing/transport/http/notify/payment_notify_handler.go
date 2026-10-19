@@ -63,7 +63,11 @@ func PaymentNotifyHandler(service billing.Service) app.HandlerFunc {
 				return
 			}
 			notification.Body = payload
-			notification.Signature = string(ctx.GetHeader("Stripe-Signature"))
+			header := style.SignatureHeader
+			if header == "" {
+				header = "Stripe-Signature"
+			}
+			notification.Signature = string(ctx.GetHeader(header))
 		} else {
 			notification.Form = nativeFormValues(ctx)
 			if style.UniqueParams {
