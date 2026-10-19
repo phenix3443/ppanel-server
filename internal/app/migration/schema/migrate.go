@@ -61,6 +61,10 @@ func Up(driver, dsn string) error {
 	if err != nil {
 		return err
 	}
+	if err := repairLegacyForkVersion(client, dbLegacyRepair{driver: driver, dsn: dsn}); err != nil {
+		sourceErr, databaseErr := client.Close()
+		return errors.Join(err, sourceErr, databaseErr)
+	}
 	return upAndClose(client)
 }
 
