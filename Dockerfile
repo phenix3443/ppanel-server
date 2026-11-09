@@ -5,7 +5,7 @@
 # Release 卡在这一步两小时没出来，而它本该是两分钟的事。
 # 加上之后 builder 始终跑在原生架构上，靠下面的 GOARCH=${TARGETARCH} 交叉编译
 # ——CGO_ENABLED=0 的 Go 本来就不需要模拟。
-FROM --platform=$BUILDPLATFORM golang:1.27.1-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.3-alpine AS builder
 
 LABEL stage=gobuilder
 
