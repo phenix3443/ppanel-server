@@ -2,7 +2,7 @@ module github.com/perfect-panel/server
 
 go 1.27.1
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/Masterminds/sprig/v3 v3.3.0
@@ -11,7 +11,7 @@ require (
 	github.com/alibabacloud-go/tea v1.5.3
 	github.com/alibabacloud-go/tea-utils v1.4.5
 	github.com/alicebob/miniredis/v2 v2.39.0
-	github.com/andybalholm/brotli v1.2.5
+	github.com/andybalholm/brotli v1.2.7
 	github.com/cloudwego/hertz v0.10.6
 	github.com/fatih/color v1.19.0
 	github.com/go-playground/locales v0.14.2
@@ -26,7 +26,7 @@ require (
 	github.com/hibiken/asynq v0.26.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/jinzhu/copier v0.4.0
-	github.com/klauspost/compress v1.20.1
+	github.com/klauspost/compress v1.20.2
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/nyaruka/phonenumbers v1.8.1
 	github.com/oschwald/geoip2-golang v1.13.0
